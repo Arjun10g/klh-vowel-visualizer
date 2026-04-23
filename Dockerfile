@@ -19,9 +19,10 @@ WORKDIR /app
 COPY backend/requirements.txt ./backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
-# Application code + data.
+# Application code + data. Parquet is the source of truth in the image —
+# 5.5 MB vs the original 88 MB CSV (column-pruned + stress-filtered).
 COPY backend/ ./backend/
-COPY all_data_18Nov2023.csv ./all_data_18Nov2023.csv
+COPY all_data_18Nov2023.parquet ./all_data_18Nov2023.parquet
 
 # Optional offsets file: present at build time → bundled; absent → jump-link
 # stays disabled at runtime per the data loader's graceful fallback.

@@ -12,6 +12,11 @@ from .schemas import classify_vowel
 log = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+# Prefer the column-pruned, stress-filtered parquet (~5.5MB) when present —
+# 16× smaller than the raw CSV (88MB), loads ~10× faster, and ships in the
+# Docker image / git repo directly. Falls back to the original CSV in dev
+# when only the upstream file is on disk.
+DEFAULT_PARQUET_PATH = REPO_ROOT / "all_data_18Nov2023.parquet"
 DEFAULT_CSV_PATH = REPO_ROOT / "all_data_18Nov2023.csv"
 DEFAULT_PREFIX_OFFSETS_PATH = REPO_ROOT / "data" / "prefix_offsets.json"
 
@@ -48,9 +53,15 @@ class DataStore:
         self.prefix_offsets_loaded = loaded
 
 
-def _csv_path() -> Path:
-    override = os.environ.get("KLH_CSV_PATH")
-    return Path(override) if override else DEFAULT_CSV_PATH
+def _data_path() -> Path:
+    """Resolve the source file. Honors KLH_DATA_PATH override, otherwise
+    prefers parquet → csv in that order."""
+    override = os.environ.get("KLH_DATA_PATH") or os.environ.get("KLH_CSV_PATH")
+    if override:
+        return Path(override)
+    if DEFAULT_PARQUET_PATH.exists():
+        return DEFAULT_PARQUET_PATH
+    return DEFAULT_CSV_PATH
 
 
 def _prefix_offsets_path() -> Path:
@@ -81,24 +92,26 @@ def load_prefix_offsets(path: Path | None = None) -> tuple[dict[str, float], boo
 
 
 def load_dataframe(path: Path | None = None) -> pl.DataFrame:
-    """Load the formant CSV into a Polars DataFrame, keeping only used columns.
+    """Load the formant data into a Polars DataFrame, keeping only used columns.
 
-    Adds a stable `token_id` derived from (Speaker, filename, word_start) so the
-    frontend can identify a clicked token across endpoints.
+    Reads either parquet (preferred — pre-pruned, pre-filtered, 5.5MB) or the
+    raw CSV (88MB, requires column-subset + stress filter at load time).
+    Adds a stable `token_id` derived from (Speaker, filename, word_start).
     """
-    target = path or _csv_path()
-    log.info("Loading CSV from %s", target)
-    df = pl.read_csv(
-        target,
-        columns=list(USED_COLUMNS),
-        # Some columns may have nulls (previous/next sound at utterance edges).
-        null_values=["NA", ""],
-    )
-    # Drop stress == "0" — matches the original app.R behavior. These rows
-    # have no linguistic stress label and were always filtered out upstream.
-    before = df.height
-    df = df.filter(pl.col("stress") != "0")
-    log.info("Filtered stress==0: dropped %d rows", before - df.height)
+    target = path or _data_path()
+    log.info("Loading data from %s", target)
+    if target.suffix == ".parquet":
+        df = pl.read_parquet(target)
+    else:
+        df = pl.read_csv(
+            target,
+            columns=list(USED_COLUMNS),
+            null_values=["NA", ""],
+        )
+        # CSV path — apply the stress filter that's already baked into parquet.
+        before = df.height
+        df = df.filter(pl.col("stress") != "0")
+        log.info("Filtered stress==0: dropped %d rows", before - df.height)
 
     df = df.with_columns(
         (

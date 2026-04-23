@@ -30,3 +30,6 @@ R_scripts/
 # Git
 .git/
 .gitignore
+
+# Raw CSV — only the parquet is shipped to the image
+all_data_18Nov2023.csv
