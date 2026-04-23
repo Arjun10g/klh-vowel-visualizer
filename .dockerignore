@@ -1,0 +1,32 @@
+# Dev tooling and caches
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Frontend build artifacts (Stage 1 builds a fresh dist/)
+frontend/node_modules/
+frontend/dist/
+
+# IDE / OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Project-local Claude config (not needed in image)
+.claude/
+CLAUDE.md
+
+# Reference R code (kept in repo for context, not for runtime)
+app.R
+R_scripts/
+
+# Git
+.git/
+.gitignore
