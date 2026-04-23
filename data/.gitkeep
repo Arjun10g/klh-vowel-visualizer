@@ -1,0 +1,3 @@
+# Placeholder — keeps data/ in git so the Dockerfile's `COPY data/` step has
+# something to copy. Optional runtime files (prefix_offsets.json for the
+# interview jump-link) go here; the backend gracefully falls back when absent.
