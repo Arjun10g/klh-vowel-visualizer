@@ -28,8 +28,11 @@ from .schemas import (
     TokensResponse,
     TrajectoriesResponse,
     Weighting,
+    WordPlotResponse,
+    WordsResponse,
 )
 from .smoothing import compute_trajectories
+from .word_plot import word_plot_payload, word_search_payload
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("klh.backend")
@@ -115,6 +118,50 @@ def token(token_id: str) -> TokenDetail:
     if detail is None:
         raise HTTPException(status_code=404, detail=f"token not found: {token_id}")
     return TokenDetail(**detail)
+
+
+@app.get("/api/words", response_model=WordsResponse)
+def words(
+    q: Annotated[str, Query()] = "",
+    speakers: Annotated[list[str] | None, Query()] = None,
+    stresses: Annotated[list[str] | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=2000)] = 20,
+) -> WordsResponse:
+    """Search recorded corpus words under the active filters."""
+    payload = word_search_payload(
+        store().df,
+        q=q,
+        speakers=speakers,
+        stresses=stresses,
+        limit=limit,
+    )
+    return WordsResponse(**payload)
+
+
+@app.get("/api/word-plot", response_model=WordPlotResponse)
+def word_plot(
+    word: Annotated[str, Query()] = "",
+    speakers: Annotated[list[str] | None, Query()] = None,
+    stresses: Annotated[list[str] | None, Query()] = None,
+    normalize: Annotated[bool, Query()] = False,
+    weighting: Annotated[Weighting, Query()] = "mean_of_means",
+    smoothing: Annotated[float, Query(ge=0, le=100000)] = 500.0,
+    n_eval_points: Annotated[int, Query(ge=10, le=500)] = 100,
+    limit: Annotated[int, Query(ge=1, le=2000)] = 500,
+) -> WordPlotResponse:
+    """Return actual recorded occurrences for one corpus word."""
+    payload = word_plot_payload(
+        store().df,
+        word=word,
+        speakers=speakers,
+        stresses=stresses,
+        normalize=normalize,
+        weighting=weighting,
+        smoothing=smoothing,
+        n_eval_points=n_eval_points,
+        limit=limit,
+    )
+    return WordPlotResponse(**payload)
 
 
 @app.get("/api/trajectories", response_model=TrajectoriesResponse)

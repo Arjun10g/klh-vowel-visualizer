@@ -26,6 +26,9 @@ frontend/dist/
 *.log
 /tmp/
 
+# Local planning notes — stay out of the repo
+*_PLAN.md
+
 # Raw CSV is regenerated into parquet via backend.build_parquet.
 # The parquet (5.5 MB) is what we ship — 16× smaller than the CSV (88 MB),
 # small enough to avoid LFS on GitHub and HF Spaces.

@@ -14,6 +14,9 @@ const TABS: TabSpec[] = [
   { id: "individual", label: "Individual Trajectories", shortcut: "2" },
   { id: "raw_contours", label: "Raw Contours", shortcut: "3" },
   { id: "contours_only", label: "Contours Only", shortcut: "4" },
+  // Corpus Word is paused for now; keep the tab spec here so it is easy to restore.
+  // { id: "corpus_word", label: "Corpus Word", shortcut: "5" },
+  { id: "live_voice", label: "Live Voice", shortcut: "6" },
 ];
 
 export function TabNav() {

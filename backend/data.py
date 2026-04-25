@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import unicodedata
 from pathlib import Path
 
 import polars as pl
@@ -19,6 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PARQUET_PATH = REPO_ROOT / "all_data_18Nov2023.parquet"
 DEFAULT_CSV_PATH = REPO_ROOT / "all_data_18Nov2023.csv"
 DEFAULT_PREFIX_OFFSETS_PATH = REPO_ROOT / "data" / "prefix_offsets.json"
+GIT_LFS_POINTER_PREFIX = "version https://git-lfs.github.com/spec/v1"
 
 # Subset of CSV columns we actually use. Saves memory on the 88MB file.
 USED_COLUMNS: tuple[str, ...] = (
@@ -59,14 +61,35 @@ def _data_path() -> Path:
     override = os.environ.get("KLH_DATA_PATH") or os.environ.get("KLH_CSV_PATH")
     if override:
         return Path(override)
-    if DEFAULT_PARQUET_PATH.exists():
+    if DEFAULT_PARQUET_PATH.exists() and not _is_git_lfs_pointer(DEFAULT_PARQUET_PATH):
         return DEFAULT_PARQUET_PATH
+    if DEFAULT_PARQUET_PATH.exists():
+        log.warning(
+            "%s is a Git LFS pointer, not parquet data — falling back to CSV",
+            DEFAULT_PARQUET_PATH,
+        )
     return DEFAULT_CSV_PATH
+
+
+def _is_git_lfs_pointer(path: Path) -> bool:
+    if not path.is_file() or path.stat().st_size > 1024:
+        return False
+    try:
+        return path.read_text(errors="ignore").startswith(GIT_LFS_POINTER_PREFIX)
+    except OSError:
+        return False
 
 
 def _prefix_offsets_path() -> Path:
     override = os.environ.get("KLH_PREFIX_OFFSETS_PATH")
     return Path(override) if override else DEFAULT_PREFIX_OFFSETS_PATH
+
+
+def normalize_word_query(value: str) -> str:
+    """Normalize user/corpus words for lookup without changing display text."""
+    normalized = unicodedata.normalize("NFC", value.strip())
+    normalized = normalized.replace("'", "ʻ").replace("`", "ʻ").replace("’", "ʻ")
+    return normalized.casefold()
 
 
 def load_prefix_offsets(path: Path | None = None) -> tuple[dict[str, float], bool]:
@@ -99,6 +122,14 @@ def load_dataframe(path: Path | None = None) -> pl.DataFrame:
     Adds a stable `token_id` derived from (Speaker, filename, word_start).
     """
     target = path or _data_path()
+    if target.suffix == ".parquet" and _is_git_lfs_pointer(target):
+        if DEFAULT_CSV_PATH.exists():
+            log.warning("%s is a Git LFS pointer — loading %s instead", target, DEFAULT_CSV_PATH)
+            target = DEFAULT_CSV_PATH
+        else:
+            raise FileNotFoundError(
+                f"{target} is a Git LFS pointer and {DEFAULT_CSV_PATH} is missing"
+            )
     log.info("Loading data from %s", target)
     if target.suffix == ".parquet":
         df = pl.read_parquet(target)
@@ -121,6 +152,23 @@ def load_dataframe(path: Path | None = None) -> pl.DataFrame:
             + pl.lit("|")
             + pl.col("word_start").cast(pl.Utf8)
         ).alias("token_id"),
+    )
+    df = df.with_columns(
+        pl.col("filename").str.split("_").list.get(0).alias("filename_prefix"),
+        pl.col("word").map_elements(normalize_word_query, return_dtype=pl.Utf8).alias(
+            "word_search_key"
+        ),
+    )
+    df = df.with_columns(
+        (
+            pl.col("Speaker").cast(pl.Utf8)
+            + pl.lit("|")
+            + pl.col("filename_prefix").cast(pl.Utf8)
+            + pl.lit("|")
+            + pl.col("word_start").cast(pl.Utf8)
+            + pl.lit("|")
+            + pl.col("word").cast(pl.Utf8)
+        ).alias("word_occurrence_id"),
     )
     log.info("Loaded %d rows, %d unique tokens", df.height, df.select("token_id").n_unique())
     return df
@@ -253,4 +301,6 @@ def tokens_payload(filtered: pl.DataFrame, *, limit: int | None) -> dict:
             keep_ids.extend(ids)
         out = out.filter(pl.col("token_id").is_in(keep_ids))
     rows = out.rename({"Speaker": "speaker"}).to_dicts()
+    for row in rows:
+        row["audio_url"] = audio_url(str(row["speaker"]), str(row["filename"]))
     return {"n_tokens": n_tokens, "n_rows": len(rows), "rows": rows}

@@ -2,10 +2,13 @@ import { useEffect, useState } from "react";
 
 import { fetchMetadata, type Metadata } from "./lib/api";
 import { ContoursOnlyTab } from "./components/ContoursOnlyTab";
+// Corpus Word is paused for now; leave the import line ready to restore.
+// import { CorpusWordTab } from "./components/CorpusWordTab";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Footer } from "./components/Footer";
 import { IndividualTrajectoriesTab } from "./components/IndividualTrajectoriesTab";
 import { LeftRail } from "./components/LeftRail";
+import { LiveVoiceTab } from "./components/LiveVoiceTab";
 import { OverallTrajectoriesTab } from "./components/OverallTrajectoriesTab";
 import { RawContoursTab } from "./components/RawContoursTab";
 import { RightRail } from "./components/RightRail";
@@ -16,6 +19,7 @@ export default function App() {
   const [metadata, setMetadata] = useState<Metadata | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const tab = useUi((s) => s.tab);
+  const activeTab = tab === "corpus_word" ? "live_voice" : tab;
 
   useEffect(() => {
     fetchMetadata()
@@ -53,10 +57,13 @@ export default function App() {
         <TabNav />
         <div className="flex-1 overflow-auto">
           <ErrorBoundary>
-            {tab === "overall" && <OverallTrajectoriesTab />}
-            {tab === "individual" && <IndividualTrajectoriesTab />}
-            {tab === "raw_contours" && <RawContoursTab />}
-            {tab === "contours_only" && <ContoursOnlyTab />}
+            {activeTab === "overall" && <OverallTrajectoriesTab />}
+            {activeTab === "individual" && <IndividualTrajectoriesTab />}
+            {activeTab === "raw_contours" && <RawContoursTab />}
+            {activeTab === "contours_only" && <ContoursOnlyTab />}
+            {/* Corpus Word is paused for now; leave the render line ready to restore. */}
+            {/* {activeTab === "corpus_word" && <CorpusWordTab metadata={metadata} />} */}
+            {activeTab === "live_voice" && <LiveVoiceTab metadata={metadata} />}
           </ErrorBoundary>
         </div>
         <Footer />

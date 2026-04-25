@@ -28,6 +28,7 @@ export const TokenSampleSchema = z.object({
   f2_normed: z.number(),
   start: z.number(),
   original_order: z.number(),
+  audio_url: z.string().url(),
 });
 export type TokenSample = z.infer<typeof TokenSampleSchema>;
 
@@ -108,6 +109,113 @@ export const TrajectoryGroupSchema = z.object({
   points: z.array(TrajectoryPointSchema),
 });
 export type TrajectoryGroup = z.infer<typeof TrajectoryGroupSchema>;
+
+export const WordSearchMatchSchema = z.object({
+  word: z.string(),
+  n_occurrences: z.number(),
+  n_vowel_tokens: z.number(),
+  vowels: z.array(z.string()),
+});
+export type WordSearchMatch = z.infer<typeof WordSearchMatchSchema>;
+
+export const WordsResponseSchema = z.object({
+  query: z.string(),
+  matches: z.array(WordSearchMatchSchema),
+});
+export type WordsResponse = z.infer<typeof WordsResponseSchema>;
+
+export type WordSearchFilters = {
+  q: string;
+  speakers?: string[];
+  stresses?: string[];
+  limit?: number;
+};
+
+export async function fetchWords(filters: WordSearchFilters): Promise<WordsResponse> {
+  const r = await fetch(`/api/words${buildQuery(filters)}`);
+  if (!r.ok) throw new Error(`words: ${r.status}`);
+  return WordsResponseSchema.parse(await r.json());
+}
+
+export const WordPlotSampleSchema = z.object({
+  time: z.number(),
+  f1: z.number(),
+  f2: z.number(),
+  f1_normed: z.number(),
+  f2_normed: z.number(),
+});
+export type WordPlotSample = z.infer<typeof WordPlotSampleSchema>;
+
+export const WordPlotVowelTokenSchema = z.object({
+  token_id: z.string(),
+  filename: z.string(),
+  vowel: z.string(),
+  stress: z.string(),
+  previous_sound: z.string().nullable(),
+  next_sound: z.string().nullable(),
+  start: z.number(),
+  original_order: z.number(),
+  audio_url: z.string().url(),
+  samples: z.array(WordPlotSampleSchema),
+});
+export type WordPlotVowelToken = z.infer<typeof WordPlotVowelTokenSchema>;
+
+export const WordPlotOccurrenceSchema = z.object({
+  word_token_id: z.string(),
+  speaker: z.string(),
+  filename_prefix: z.string(),
+  word: z.string(),
+  word_start: z.number(),
+  vowels: z.array(WordPlotVowelTokenSchema),
+});
+export type WordPlotOccurrence = z.infer<typeof WordPlotOccurrenceSchema>;
+
+export const WordSlotTrajectorySchema = z.object({
+  slot: z.number(),
+  vowel: z.string(),
+  n_tokens: z.number(),
+  points: z.array(TrajectoryPointSchema),
+});
+export type WordSlotTrajectory = z.infer<typeof WordSlotTrajectorySchema>;
+
+export const WordSpeakerSlotTrajectorySchema = WordSlotTrajectorySchema.extend({
+  speaker: z.string(),
+});
+export type WordSpeakerSlotTrajectory = z.infer<typeof WordSpeakerSlotTrajectorySchema>;
+
+export const WordPlotResponseSchema = z.object({
+  word: z.string(),
+  normalize: z.boolean(),
+  weighting: z.enum(["mean_of_means", "pooled"]),
+  smoothing: z.number(),
+  n_eval_points: z.number(),
+  n_occurrences: z.number(),
+  n_returned_occurrences: z.number(),
+  n_vowel_tokens: z.number(),
+  n_returned_vowel_tokens: z.number(),
+  occurrences: z.array(WordPlotOccurrenceSchema),
+  slot_trajectories: z.array(WordSlotTrajectorySchema),
+  corpus_slot_trajectories: z.array(WordSlotTrajectorySchema),
+  speaker_slot_trajectories: z.array(WordSpeakerSlotTrajectorySchema),
+});
+export type WordPlotResponse = z.infer<typeof WordPlotResponseSchema>;
+
+export type WordPlotFilters = {
+  word: string;
+  speakers?: string[];
+  stresses?: string[];
+  normalize?: string;
+  weighting?: "mean_of_means" | "pooled";
+  smoothing?: number;
+  n_eval_points?: number;
+  limit?: number;
+};
+
+export async function fetchWordPlot(filters: WordPlotFilters): Promise<WordPlotResponse> {
+  const r = await fetch(`/api/word-plot${buildQuery(filters)}`);
+  if (!r.ok) throw new Error(`word plot: ${r.status}`);
+  return WordPlotResponseSchema.parse(await r.json());
+}
 
 export const TrajectoriesResponseSchema = z.object({
   normalize: z.boolean(),
