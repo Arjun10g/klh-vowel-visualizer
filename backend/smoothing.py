@@ -25,6 +25,8 @@ import numpy as np
 import polars as pl
 from scipy.interpolate import UnivariateSpline
 
+from .data import filter_tokens
+
 log = logging.getLogger(__name__)
 
 Weighting = Literal["mean_of_means", "pooled"]
@@ -154,6 +156,8 @@ def compute_trajectories(
     speakers: list[str] | None,
     vowels: list[str] | None,
     stresses: list[str] | None,
+    function_include: list[str] | None = None,
+    function_exclude: list[str] | None = None,
     normalize: bool,
     group_by: list[GroupBy],
     weighting: Weighting,
@@ -161,13 +165,14 @@ def compute_trajectories(
     n_eval_points: int = DEFAULT_N_EVAL_POINTS,
 ) -> list[dict]:
     """Return one smoothed trajectory dict per (group_combo, vowel)."""
-    out = df
-    if speakers:
-        out = out.filter(pl.col("Speaker").is_in(speakers))
-    if vowels:
-        out = out.filter(pl.col("vowel").is_in(vowels))
-    if stresses:
-        out = out.filter(pl.col("stress").is_in(stresses))
+    out = filter_tokens(
+        df,
+        speakers=speakers,
+        vowels=vowels,
+        stresses=stresses,
+        function_include=function_include,
+        function_exclude=function_exclude,
+    )
 
     if out.height == 0:
         return []

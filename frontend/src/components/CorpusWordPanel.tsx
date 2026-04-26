@@ -4,7 +4,11 @@ import plotlyModule from "plotly.js-dist-min";
 import type { PlotMouseEvent } from "plotly.js";
 
 import type { TokenSample, WordPlotOccurrence } from "../lib/api";
-import { colorForVowel } from "../lib/colors";
+import {
+  colorForVowel,
+  SELECTED_TOKEN_COLOR,
+  SELECTED_TOKEN_OUTLINE,
+} from "../lib/colors";
 import { useSelection } from "../store/selection";
 import type { AxisRange } from "./PlotPanel";
 
@@ -93,6 +97,7 @@ function tokenSampleFromPoint(
     start: token.start,
     original_order: token.original_order,
     audio_url: token.audio_url,
+    function_flags: {},
   };
 }
 
@@ -147,6 +152,7 @@ export function CorpusWordPanel({
     x: bundle.x,
     y: bundle.y,
     text: bundle.text,
+    customdata: bundle.samples.map((sample) => sample?.token_id ?? null),
     line: { color: "#334155", width: 1.9, shape: "spline" },
     marker: { color: "#334155", size: 3.5, opacity: Math.max(0.4, opacity) },
     opacity: Math.max(0.42, opacity),
@@ -160,9 +166,15 @@ export function CorpusWordPanel({
         mode: "lines+markers",
         x: bundle.x.map((value, index) => (bundle.selectedIdxs.has(index) ? value : null)),
         y: bundle.y.map((value, index) => (bundle.selectedIdxs.has(index) ? value : null)),
-        line: { color: "#0f172a", width: 3 },
-        marker: { color: "#0f172a", size: 6 },
-        hoverinfo: "skip",
+        text: bundle.text,
+        customdata: bundle.samples.map((sample) => sample?.token_id ?? null),
+        line: { color: SELECTED_TOKEN_COLOR, width: 4 },
+        marker: {
+          color: SELECTED_TOKEN_COLOR,
+          size: 9,
+          line: { color: SELECTED_TOKEN_OUTLINE, width: 1.8 },
+        },
+        hovertemplate: "%{text}<extra></extra>",
         showlegend: false,
       }
     : null;
@@ -213,12 +225,18 @@ export function CorpusWordPanel({
     .filter(Boolean);
 
   const data = highlightTrace
-    ? [baseTrace, highlightTrace, ...overlayTraces]
+    ? [baseTrace, ...overlayTraces, highlightTrace]
     : [baseTrace, ...overlayTraces];
 
   const handleClick = (e: Readonly<PlotMouseEvent>) => {
     const point = e.points?.[0];
     if (!point) return;
+    const tokenIdFromPoint = (point as unknown as { customdata?: unknown }).customdata;
+    if (typeof tokenIdFromPoint === "string") {
+      const sample = bundle.samples.find((row) => row?.token_id === tokenIdFromPoint);
+      if (sample) select(sample);
+      return;
+    }
     const curve = point.curveNumber as number | undefined;
     const idx = point.pointIndex as number | undefined;
     if (curve !== 0 || idx === undefined) return;
@@ -241,7 +259,7 @@ export function CorpusWordPanel({
             autorange: xRange ? false : "reversed",
             range: xRange ? [xRange[1], xRange[0]] : undefined,
             zeroline: false,
-            gridcolor: "#eef0f4",
+            gridcolor: "#cbd5e1",
             tickfont: { size: 10 },
           },
           yaxis: {
@@ -249,13 +267,13 @@ export function CorpusWordPanel({
             autorange: yRange ? false : "reversed",
             range: yRange ? [yRange[1], yRange[0]] : undefined,
             zeroline: false,
-            gridcolor: "#eef0f4",
+            gridcolor: "#cbd5e1",
             tickfont: { size: 10 },
           },
           margin: { l: 56, r: 16, t: 36, b: 46 },
           showlegend: false,
-          plot_bgcolor: "#fafbff",
-          paper_bgcolor: "#ffffff",
+          plot_bgcolor: "#e8f3ff",
+          paper_bgcolor: "#f8fbff",
           hovermode: "closest",
           hoverlabel: { bgcolor: "#0f172a", font: { color: "#ffffff", size: 12 } },
           annotations,

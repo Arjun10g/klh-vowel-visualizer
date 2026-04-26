@@ -8,6 +8,25 @@ export interface FormantEstimate {
   f2: number;
   rms: number;
   confidence: number;
+  maxFrequency?: number;
+  lpcOrder?: number;
+}
+
+export interface FormantTarget {
+  f1: number;
+  f2: number;
+}
+
+export interface FormantEstimateOptions {
+  mode?: "single" | "multi";
+  maxFrequency?: number;
+  lpcOrder?: number;
+  previous?: FormantTarget | null;
+  target?: FormantTarget | null;
+}
+
+interface FormantCandidate extends FormantEstimate {
+  cost: number;
 }
 
 function cAdd(a: Complex, b: Complex): Complex {
@@ -68,8 +87,10 @@ function polynomialRoots(coeffs: number[]): Complex[] {
 function downsample(
   input: Float32Array<ArrayBufferLike>,
   sampleRate: number,
+  maxFrequency: number,
 ): { data: Float32Array<ArrayBufferLike>; sampleRate: number } {
-  const factor = Math.max(1, Math.ceil(sampleRate / 16000));
+  const targetRate = Math.min(16000, Math.max(8000, maxFrequency * 2.35));
+  const factor = Math.max(1, Math.floor(sampleRate / targetRate));
   if (factor === 1) return { data: input, sampleRate };
   const length = Math.floor(input.length / factor);
   const out = new Float32Array(length);
@@ -112,11 +133,14 @@ function levinsonDurbin(r: number[], order: number): number[] | null {
   return a;
 }
 
-export function estimateFormants(
+function estimateFormantsOnce(
   frameIn: Float32Array<ArrayBufferLike>,
   sampleRateIn: number,
-): FormantEstimate | null {
-  const { data, sampleRate } = downsample(frameIn, sampleRateIn);
+  options: Required<Pick<FormantEstimateOptions, "maxFrequency" | "lpcOrder">> &
+    Pick<FormantEstimateOptions, "previous" | "target">,
+): FormantCandidate | null {
+  const { maxFrequency, lpcOrder, previous, target } = options;
+  const { data, sampleRate } = downsample(frameIn, sampleRateIn, maxFrequency);
   if (data.length < 512) return null;
 
   let mean = 0;
@@ -137,8 +161,7 @@ export function estimateFormants(
   const rms = Math.sqrt(rmsSum / data.length);
   if (rms < 0.012) return null;
 
-  const order = 12;
-  const lpc = levinsonDurbin(autocorrelation(frame, order), order);
+  const lpc = levinsonDurbin(autocorrelation(frame, lpcOrder), lpcOrder);
   if (!lpc) return null;
 
   const candidates = polynomialRoots(lpc)
@@ -152,24 +175,88 @@ export function estimateFormants(
       Number.isFinite(freq) &&
       Number.isFinite(bandwidth) &&
       freq >= 180 &&
-      freq <= 3500 &&
+      freq <= maxFrequency &&
       bandwidth > 20 &&
       bandwidth <= 900
     )
     .sort((a, b) => a.freq - b.freq);
 
-  const f1 = candidates.find((candidate) => candidate.freq >= 220 && candidate.freq <= 1200);
-  if (!f1) return null;
-  const f2 = candidates.find((candidate) =>
-    candidate.freq >= Math.max(700, f1.freq + 250) &&
-    candidate.freq <= 3300
-  );
-  if (!f2) return null;
+  let best: { f1: { freq: number; bandwidth: number }; f2: { freq: number; bandwidth: number }; cost: number } | null = null;
+  for (const f1 of candidates) {
+    if (f1.freq < 220 || f1.freq > 1200) continue;
+    for (const f2 of candidates) {
+      if (f2.freq < Math.max(650, f1.freq + 250) || f2.freq > maxFrequency) continue;
+      let cost = (f1.bandwidth + f2.bandwidth) / 1800;
+      cost += Math.abs(f2.freq - f1.freq - 900) / 5000;
+      if (previous) {
+        cost += Math.abs(f1.freq - previous.f1) / 900;
+        cost += Math.abs(f2.freq - previous.f2) / 1300;
+      }
+      if (target) {
+        cost += Math.abs(f1.freq - target.f1) / 700;
+        cost += Math.abs(f2.freq - target.f2) / 900;
+        if (target.f2 < 1500 && f2.freq > 2200) cost += 1.4;
+      }
+      if (!best || cost < best.cost) best = { f1, f2, cost };
+    }
+  }
+  if (!best) return null;
 
   return {
-    f1: f1.freq,
-    f2: f2.freq,
+    f1: best.f1.freq,
+    f2: best.f2.freq,
     rms,
-    confidence: Math.min(1, rms / 0.08) * Math.max(0.2, 1 - (f1.bandwidth + f2.bandwidth) / 1800),
+    confidence:
+      Math.min(1, rms / 0.08) *
+      Math.max(0.15, 1 - (best.f1.bandwidth + best.f2.bandwidth) / 1800) *
+      Math.max(0.2, 1 - best.cost / 5),
+    maxFrequency,
+    lpcOrder,
+    cost: best.cost,
   };
+}
+
+export function estimateFormants(
+  frameIn: Float32Array<ArrayBufferLike>,
+  sampleRateIn: number,
+  options: FormantEstimateOptions = {},
+): FormantEstimate | null {
+  const maxFrequency = options.maxFrequency ?? 5000;
+  const lpcOrder = options.lpcOrder ?? 12;
+  if (options.mode !== "multi") {
+    return estimateFormantsOnce(frameIn, sampleRateIn, {
+      maxFrequency,
+      lpcOrder,
+      previous: options.previous ?? null,
+      target: options.target ?? null,
+    });
+  }
+
+  const maxFrequencies = [...new Set([
+    Math.max(3000, maxFrequency - 1000),
+    Math.max(3000, maxFrequency - 500),
+    maxFrequency,
+    Math.min(6500, maxFrequency + 500),
+    Math.min(6500, maxFrequency + 1000),
+  ])];
+  const orders = [...new Set([
+    Math.max(8, lpcOrder - 2),
+    lpcOrder,
+    Math.min(18, lpcOrder + 2),
+  ])];
+
+  let best: FormantCandidate | null = null;
+  for (const candidateMax of maxFrequencies) {
+    for (const candidateOrder of orders) {
+      const candidate = estimateFormantsOnce(frameIn, sampleRateIn, {
+        maxFrequency: candidateMax,
+        lpcOrder: candidateOrder,
+        previous: options.previous ?? null,
+        target: options.target ?? null,
+      });
+      if (!candidate) continue;
+      if (!best || candidate.cost < best.cost) best = candidate;
+    }
+  }
+  return best;
 }

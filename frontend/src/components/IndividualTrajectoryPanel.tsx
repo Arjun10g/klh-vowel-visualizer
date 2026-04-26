@@ -1,10 +1,18 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import factoryModule from "react-plotly.js/factory";
 import plotlyModule from "plotly.js-dist-min";
 import type { PlotMouseEvent } from "plotly.js";
 
 import type { TokenSample, TrajectoryGroup } from "../lib/api";
-import { colorForVowel } from "../lib/colors";
+import {
+  colorForVowel,
+  SELECTED_TOKEN_COLOR,
+  SELECTED_TOKEN_OUTLINE,
+  WORD_MATCH_COLOR,
+} from "../lib/colors";
+import { samplesForPointMode } from "../lib/pointMode";
+import { wordMatches } from "../lib/wordMatch";
+import type { PointMode } from "../store/filters";
 import { useSelection } from "../store/selection";
 import type { AxisRange } from "./PlotPanel";
 
@@ -28,6 +36,8 @@ interface Props {
   /** Smoothed mean trajectories overlaid on top of the faint per-token lines. */
   trajectories?: TrajectoryGroup[];
   useNormalized: boolean;
+  pointMode: PointMode;
+  wordQuery?: string;
   /** 0–1, applied to the per-token line opacity. */
   opacity: number;
   xRange?: AxisRange;
@@ -45,8 +55,7 @@ interface VowelLineBundle {
   ids: (string | null)[];
   /** Hover label per point. */
   text: (string | null)[];
-  /** Index in the selected token's id sequence (for highlight). */
-  selectedIdxs: Set<number>;
+  matchedIdxs: Set<number>;
 }
 
 /**
@@ -63,13 +72,27 @@ export function IndividualTrajectoryPanel({
   samples,
   trajectories,
   useNormalized,
+  pointMode,
+  wordQuery = "",
   opacity,
   xRange,
   yRange,
   height = 380,
 }: Props) {
   const select = useSelection((s) => s.select);
-  const selectedId = useSelection((s) => s.tokenId);
+  const sampleByTokenId = useMemo(() => {
+    const byToken = new Map<string, TokenSample>();
+    for (const sample of samples) {
+      if (!byToken.has(sample.token_id)) byToken.set(sample.token_id, sample);
+    }
+    return byToken;
+  }, [samples]);
+  const selectedId = useSelection(
+    useCallback(
+      (s) => (s.tokenId && sampleByTokenId.has(s.tokenId) ? s.tokenId : null),
+      [sampleByTokenId],
+    ),
+  );
 
   const bundles = useMemo<VowelLineBundle[]>(() => {
     // Group samples by (vowel, token_id), preserving time order within token.
@@ -90,18 +113,19 @@ export function IndividualTrajectoryPanel({
       const ys: (number | null)[] = [];
       const ids: (string | null)[] = [];
       const texts: (string | null)[] = [];
-      const sel = new Set<number>();
+      const matches = new Set<number>();
       let i = 0;
       const tokens = [...byTok.entries()];
       for (let ti = 0; ti < tokens.length; ti++) {
         const [tokenId, rows] = tokens[ti];
         rows.sort((a, b) => a.time - b.time);
-        for (const r of rows) {
+        const displayRows = samplesForPointMode(rows, pointMode);
+        for (const r of displayRows) {
           xs.push(useNormalized ? r.f2_normed : r.f2);
           ys.push(useNormalized ? r.f1_normed : r.f1);
           ids.push(tokenId);
           texts.push(`${r.word} (${r.vowel}) — ${r.speaker} t=${r.time}`);
-          if (tokenId === selectedId) sel.add(i);
+          if (wordMatches(r.word, wordQuery)) matches.add(i);
           i++;
         }
         // NaN separator so Plotly doesn't connect this token to the next.
@@ -114,85 +138,134 @@ export function IndividualTrajectoryPanel({
         vowel,
         color: colorForVowel(vowel),
         x: xs, y: ys, ids, text: texts,
-        selectedIdxs: sel,
+        matchedIdxs: matches,
       });
     }
     return result.sort((a, b) => a.vowel.localeCompare(b.vowel));
-  }, [samples, selectedId, useNormalized]);
+  }, [samples, useNormalized, pointMode, wordQuery]);
 
-  // Build a per-vowel pair of traces:
-  //   1) faint base lines (all tokens of the vowel)
-  //   2) bold highlight lines for the selected token (if in this panel)
-  // The highlight is drawn from the same data with a mask: non-selected
-  // points get NaN, so only the selected token's segment is rendered.
-  const data = bundles.flatMap((b) => {
-    const traces: unknown[] = [
-      {
-        type: "scatter",
-        mode: "lines",
-        name: b.vowel,
-        x: b.x,
-        y: b.y,
-        text: b.text,
-        customdata: b.ids,
-        line: { color: b.color, width: 1, shape: "spline" },
-        opacity,
-        hovertemplate: "%{text}<extra></extra>",
-        showlegend: false,
-      },
-    ];
-    if (b.selectedIdxs.size > 0) {
-      const xx = b.x.map((v, i) => (b.selectedIdxs.has(i) ? v : null));
-      const yy = b.y.map((v, i) => (b.selectedIdxs.has(i) ? v : null));
-      traces.push({
-        type: "scatter",
-        mode: "lines+markers",
-        x: xx,
-        y: yy,
-        line: { color: "#0f172a", width: 3 },
-        marker: { color: "#0f172a", size: 6 },
-        hoverinfo: "skip",
-        showlegend: false,
-      });
-    }
-    return traces;
-  });
+  // Keep the large per-vowel traces independent of selection. Clicked-token
+  // highlight is a tiny overlay trace below, which keeps selection responsive.
+  const data = useMemo(
+    () =>
+      bundles.flatMap((b) => {
+        const traces: unknown[] = [
+          {
+            type: "scatter",
+            mode: "lines+markers",
+            name: b.vowel,
+            x: b.x,
+            y: b.y,
+            text: b.text,
+            customdata: b.ids,
+            line: { color: b.color, width: 1, shape: "spline" },
+            marker: { color: b.color, size: 5, line: { color: "#ffffff", width: 0.4 } },
+            opacity,
+            hovertemplate: "%{text}<extra></extra>",
+            showlegend: false,
+          },
+        ];
+        if (b.matchedIdxs.size > 0) {
+          const xx = b.x.map((v, i) => (b.matchedIdxs.has(i) ? v : null));
+          const yy = b.y.map((v, i) => (b.matchedIdxs.has(i) ? v : null));
+          traces.push({
+            type: "scatter",
+            mode: pointMode === "single" ? "markers" : "lines+markers",
+            x: xx,
+            y: yy,
+            text: b.text,
+            customdata: b.ids,
+            line: { color: "#0f172a", width: 3 },
+            marker: { color: WORD_MATCH_COLOR, size: 7, line: { color: "#0f172a", width: 1.2 } },
+            hovertemplate: "%{text}<extra></extra>",
+            showlegend: false,
+          });
+        }
+        return traces;
+      }),
+    [bundles, opacity, pointMode],
+  );
 
   // Smoothed mean overlay — one per (vowel, stress?) trajectory group.
-  const trajectoryTraces = (trajectories ?? []).map((g) => ({
-    type: "scatter",
-    mode: "lines",
-    name: `${g.vowel} mean`,
-    x: g.points.map((p) => p.f2),
-    y: g.points.map((p) => p.f1),
-    line: { color: colorForVowel(g.vowel), width: 3, shape: "spline" },
-    hoverinfo: "skip",
-    showlegend: false,
-  }));
+  const trajectoryTraces = useMemo(
+    () =>
+      (trajectories ?? []).map((g) => ({
+        type: "scatter",
+        mode: "lines",
+        name: `${g.vowel} mean`,
+        x: g.points.map((p) => p.f2),
+        y: g.points.map((p) => p.f1),
+        line: { color: colorForVowel(g.vowel), width: 3, shape: "spline" },
+        hoverinfo: "skip",
+        showlegend: false,
+      })),
+    [trajectories],
+  );
 
-  const allData = [...data, ...trajectoryTraces];
+  const selectedRows = useMemo(() => {
+    if (!selectedId) return [];
+    const rows = samples
+      .filter((sample) => sample.token_id === selectedId)
+      .sort((a, b) => a.time - b.time);
+    return samplesForPointMode(rows, pointMode);
+  }, [pointMode, samples, selectedId]);
+
+  const selectedTrace = selectedRows.length > 0
+    ? {
+        type: "scatter",
+        mode: selectedRows.length > 1 ? "lines+markers" : "markers",
+        name: "Selected token",
+        x: selectedRows.map((sample) => (useNormalized ? sample.f2_normed : sample.f2)),
+        y: selectedRows.map((sample) => (useNormalized ? sample.f1_normed : sample.f1)),
+        text: selectedRows.map((sample) => `${sample.word} (${sample.vowel}) — ${sample.speaker} t=${sample.time}`),
+        customdata: selectedRows.map((sample) => sample.token_id),
+        line: { color: SELECTED_TOKEN_COLOR, width: 4.5, shape: "spline" },
+        marker: {
+          color: SELECTED_TOKEN_COLOR,
+          size: 10,
+          line: { color: SELECTED_TOKEN_OUTLINE, width: 2 },
+        },
+        hovertemplate: "%{text}<extra></extra>",
+        showlegend: false,
+      }
+    : null;
+
+  const hitTrace = useMemo(() => ({
+    type: "scatter",
+    mode: "markers",
+    name: "Click targets",
+    x: bundles.flatMap((b) => b.x),
+    y: bundles.flatMap((b) => b.y),
+    text: bundles.flatMap((b) => b.text),
+    customdata: bundles.flatMap((b) => b.ids),
+    marker: {
+      color: "rgba(17, 24, 39, 0.001)",
+      size: 18,
+      line: { width: 0 },
+    },
+    hovertemplate: "%{text}<extra></extra>",
+    showlegend: false,
+  }), [bundles]);
+
+  const allData = useMemo(
+    () => [
+      ...trajectoryTraces,
+      ...data,
+      ...(selectedTrace ? [selectedTrace] : []),
+      hitTrace,
+    ],
+    [data, hitTrace, selectedTrace, trajectoryTraces],
+  );
 
   const handleClick = (e: Readonly<PlotMouseEvent>) => {
     const point = e.points?.[0];
     if (!point) return;
-    const curve = point.curveNumber as number | undefined;
-    const idx = point.pointIndex as number | undefined;
-    if (curve === undefined || idx === undefined) return;
-    // The data array is laid out as: per-vowel base trace, optional highlight
-    // trace, repeat — then trailing smoothed-mean traces. Walk the prefix to
-    // find which base trace was clicked; ignore highlight/mean clicks.
-    let bIdx = 0;
-    let traceCursor = 0;
-    for (; bIdx < bundles.length; bIdx++) {
-      if (traceCursor === curve) break;
-      traceCursor += 1 + (bundles[bIdx].selectedIdxs.size > 0 ? 1 : 0);
+    const tokenIdFromPoint = (point as unknown as { customdata?: unknown }).customdata;
+    if (typeof tokenIdFromPoint === "string") {
+      const sample = sampleByTokenId.get(tokenIdFromPoint);
+      if (sample) select(sample);
+      return;
     }
-    if (bIdx >= bundles.length) return;
-    const bundle = bundles[bIdx];
-    const tokenId = bundle.ids[idx];
-    if (!tokenId) return;
-    const sample = samples.find((s) => s.token_id === tokenId);
-    if (sample) select(sample);
   };
 
   const axisLabels = useNormalized
@@ -210,7 +283,7 @@ export function IndividualTrajectoryPanel({
             autorange: xRange ? false : "reversed",
             range: xRange ? [xRange[1], xRange[0]] : undefined,
             zeroline: false,
-            gridcolor: "#eef0f4",
+            gridcolor: "#cbd5e1",
             tickfont: { size: 10 },
           },
           yaxis: {
@@ -218,14 +291,16 @@ export function IndividualTrajectoryPanel({
             autorange: yRange ? false : "reversed",
             range: yRange ? [yRange[1], yRange[0]] : undefined,
             zeroline: false,
-            gridcolor: "#eef0f4",
+            gridcolor: "#cbd5e1",
             tickfont: { size: 10 },
           },
           margin: { l: 56, r: 16, t: 36, b: 46 },
           showlegend: false,
-          plot_bgcolor: "#fafbff",
-          paper_bgcolor: "#ffffff",
+          plot_bgcolor: "#e8f3ff",
+          paper_bgcolor: "#f8fbff",
           hovermode: "closest",
+          clickmode: "event",
+          hoverdistance: 18,
           hoverlabel: { bgcolor: "#0f172a", font: { color: "#ffffff", size: 12 } },
         }}
         config={{ displayModeBar: false, responsive: true }}

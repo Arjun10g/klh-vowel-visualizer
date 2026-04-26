@@ -19,6 +19,7 @@ import numpy as np
 import polars as pl
 from scipy.stats import gaussian_kde
 
+from .data import filter_tokens
 from .smoothing import GroupBy, _enumerate_groups, _composite_key, _resolve_groupings
 
 log = logging.getLogger(__name__)
@@ -97,17 +98,20 @@ def compute_contours(
     speakers: list[str] | None,
     vowels: list[str] | None,
     stresses: list[str] | None,
+    function_include: list[str] | None = None,
+    function_exclude: list[str] | None = None,
     normalize: bool,
     group_by: list[GroupBy],
     grid_size: int = DEFAULT_GRID_SIZE,
 ) -> list[dict]:
-    out = df
-    if speakers:
-        out = out.filter(pl.col("Speaker").is_in(speakers))
-    if vowels:
-        out = out.filter(pl.col("vowel").is_in(vowels))
-    if stresses:
-        out = out.filter(pl.col("stress").is_in(stresses))
+    out = filter_tokens(
+        df,
+        speakers=speakers,
+        vowels=vowels,
+        stresses=stresses,
+        function_include=function_include,
+        function_exclude=function_exclude,
+    )
 
     if out.height == 0:
         return []

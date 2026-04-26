@@ -6,6 +6,7 @@ import {
   type ContoursResponse,
   type GroupByDim,
 } from "../lib/api";
+import { functionFilterParams } from "../lib/functionFilters";
 import { useFilters } from "../store/filters";
 import { ContoursOnlyPanel } from "./ContoursOnlyPanel";
 import { LoadingBadge } from "./LoadingBadge";
@@ -41,6 +42,9 @@ export function ContoursOnlyTab() {
   const stresses = useFilters((s) => s.stresses);
   const speakerMode = useFilters((s) => s.speakerMode);
   const stressMode = useFilters((s) => s.stressMode);
+  const functionWordModes = useFilters((s) => s.functionWordModes);
+  const functionParams = useMemo(() => functionFilterParams(functionWordModes), [functionWordModes]);
+  const functionKey = JSON.stringify(functionParams);
 
   const [data, setData] = useState<ContoursResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -56,10 +60,7 @@ export function ContoursOnlyTab() {
     return dims.length === 0 ? ["none"] : dims;
   }, [speakerMode, stressMode]);
 
-  const speakerPanelCount = speakerMode === "separate" ? Math.max(1, speakers.length) : 1;
-  const stressPanelCount =
-    stressMode === "separate" ? (stresses.length > 0 ? stresses.length : 3) : 1;
-  const useNormalized = speakerPanelCount * stressPanelCount > 1;
+  const useNormalized = speakerMode === "merged";
 
   useEffect(() => {
     let cancelled = false;
@@ -69,6 +70,7 @@ export function ContoursOnlyTab() {
       speakers,
       vowels,
       stresses,
+      ...functionParams,
       normalize: useNormalized ? "true" : "false",
       group_by: groupBy,
       grid_size: GRID_SIZE,
@@ -85,7 +87,7 @@ export function ContoursOnlyTab() {
     return () => {
       cancelled = true;
     };
-  }, [speakers, vowels, stresses, useNormalized, groupBy]);
+  }, [speakers, vowels, stresses, functionKey, useNormalized, groupBy, functionParams]);
 
   const panels: PanelSpec[] = useMemo(() => {
     if (!data) return [];

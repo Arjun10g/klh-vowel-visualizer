@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  fetchTokens,
   fetchTrajectories,
   type GroupByDim,
+  type TokenSample,
+  type TokensResponse,
   type TrajectoriesResponse,
   type TrajectoryGroup,
 } from "../lib/api";
+import { functionFilterParams } from "../lib/functionFilters";
 import { useDebouncedValue } from "../lib/hooks";
 import { useFilters } from "../store/filters";
 import { LoadingBadge } from "./LoadingBadge";
@@ -40,21 +44,21 @@ export function OverallTrajectoriesTab() {
   const speakerMode = useFilters((s) => s.speakerMode);
   const stressMode = useFilters((s) => s.stressMode);
   const weighting = useFilters((s) => s.weighting);
+  const pointMode = useFilters((s) => s.pointMode);
+  const wordQuery = useFilters((s) => s.wordQuery);
+  const functionWordModes = useFilters((s) => s.functionWordModes);
   const smoothingRaw = useFilters((s) => s.smoothing);
   const smoothing = useDebouncedValue(smoothingRaw, 200);
+  const debouncedWordQuery = useDebouncedValue(wordQuery, 180);
+  const functionParams = useMemo(() => functionFilterParams(functionWordModes), [functionWordModes]);
+  const functionKey = JSON.stringify(functionParams);
 
   const [traj, setTraj] = useState<TrajectoriesResponse | null>(null);
+  const [highlightTokens, setHighlightTokens] = useState<TokensResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Compute n_rendered_plots first so we know whether to normalize.
-  const speakerPanelCount = speakerMode === "separate" ? Math.max(1, speakers.length) : 1;
-  // Stress is computed from data; but we know which stresses are filtered in.
-  // If user didn't filter, we'll discover from response. Simpler: assume all 3.
-  const stressPanelCount =
-    stressMode === "separate" ? (stresses.length > 0 ? stresses.length : 3) : 1;
-  const nPanels = speakerPanelCount * stressPanelCount;
-  const useNormalized = nPanels > 1;
+  const useNormalized = speakerMode === "merged";
 
   // Backend grouping dims: include speaker iff splitting (separate) or stress
   // is engaged (overlay/separate). Stress is included for both overlay and
@@ -74,10 +78,12 @@ export function OverallTrajectoriesTab() {
       speakers,
       vowels,
       stresses,
+      ...functionParams,
       normalize: useNormalized ? "true" : "false",
       group_by: groupBy,
       weighting,
       smoothing,
+      n_eval_points: 9,
     })
       .then((d) => {
         if (!cancelled) setTraj(d);
@@ -91,7 +97,33 @@ export function OverallTrajectoriesTab() {
     return () => {
       cancelled = true;
     };
-  }, [speakers, vowels, stresses, useNormalized, groupBy, weighting, smoothing]);
+  }, [speakers, vowels, stresses, functionKey, useNormalized, groupBy, weighting, smoothing, functionParams]);
+
+  useEffect(() => {
+    const q = debouncedWordQuery.trim();
+    if (!q) {
+      void Promise.resolve().then(() => setHighlightTokens(null));
+      return;
+    }
+    let cancelled = false;
+    fetchTokens({
+      speakers,
+      vowels,
+      stresses,
+      ...functionParams,
+      word_q: q,
+      limit: 1200,
+    })
+      .then((d) => {
+        if (!cancelled) setHighlightTokens(d);
+      })
+      .catch(() => {
+        if (!cancelled) setHighlightTokens(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedWordQuery, speakers, vowels, stresses, functionKey, functionParams]);
 
   // Build panel specs based on the actual dimensions present in the response.
   const panels: PanelSpec[] = useMemo(() => {
@@ -147,8 +179,12 @@ export function OverallTrajectoriesTab() {
         ys.push(p.f1);
       }
     }
+    for (const row of highlightTokens?.rows ?? []) {
+      xs.push(useNormalized ? row.f2_normed : row.f2);
+      ys.push(useNormalized ? row.f1_normed : row.f1);
+    }
     return { x: paddedRange(xs), y: paddedRange(ys) };
-  }, [traj, panels.length]);
+  }, [traj, panels.length, highlightTokens, useNormalized]);
 
   const presentVowels = useMemo(() => {
     if (!traj) return [];
@@ -183,7 +219,7 @@ export function OverallTrajectoriesTab() {
           {traj.groups.length} smoothed groups · vowels: {presentVowels.length}
         </span>
         <span>
-          {useNormalized ? "Normalized formants" : "Raw formants (Hz)"} · s={smoothing.toFixed(0)}
+          {useNormalized ? "Normalized formants" : "Raw formants (Hz)"} · {pointMode === "nine" ? "9 pts" : pointMode === "single" ? "single point" : "auto points"} · s={smoothing.toFixed(0)}
           {stressMode === "overlay" && " · stress overlay (solid=primary, dashed=secondary, dotted=unstressed)"}
         </span>
       </div>
@@ -193,18 +229,28 @@ export function OverallTrajectoriesTab() {
         className="grid gap-3"
         style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
       >
-        {panels.map((p) => (
-          <OverallTrajectoryPanel
-            key={`${cols}-${p.key}`}
-            title={p.title}
-            trajectories={panelTrajectories.get(p.key) ?? []}
-            xRange={sharedRanges.x ?? undefined}
-            yRange={sharedRanges.y ?? undefined}
-            stressOverlay={stressMode === "overlay"}
-            useNormalized={useNormalized}
-            height={panels.length === 1 ? 480 : 360}
-          />
-        ))}
+        {panels.map((p) => {
+          const matchedHighlights = (highlightTokens?.rows ?? []).filter((row: TokenSample) => {
+            if (p.filter.speaker && row.speaker !== p.filter.speaker) return false;
+            if (p.filter.stress && row.stress !== p.filter.stress) return false;
+            return true;
+          });
+          return (
+            <OverallTrajectoryPanel
+              key={`${cols}-${p.key}`}
+              title={p.title}
+              trajectories={panelTrajectories.get(p.key) ?? []}
+              highlightSamples={matchedHighlights}
+              wordQuery={debouncedWordQuery}
+              pointMode={pointMode}
+              xRange={sharedRanges.x ?? undefined}
+              yRange={sharedRanges.y ?? undefined}
+              stressOverlay={stressMode === "overlay"}
+              useNormalized={useNormalized}
+              height={panels.length === 1 ? 480 : 360}
+            />
+          );
+        })}
       </div>
     </div>
   );

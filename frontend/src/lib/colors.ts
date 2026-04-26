@@ -9,7 +9,12 @@ const PALETTE = [
 
 const cache = new Map<string, string>();
 
+export const SELECTED_TOKEN_COLOR = "#e11d48";
+export const SELECTED_TOKEN_OUTLINE = "#111827";
+export const WORD_MATCH_COLOR = "#facc15";
+
 export function colorForVowel(vowel: string): string {
+  if (vowel === "oa") return "#0f766e";
   const cached = cache.get(vowel);
   if (cached) return cached;
   // Stable hash → palette index, so each vowel gets the same color across

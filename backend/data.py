@@ -31,15 +31,69 @@ USED_COLUMNS: tuple[str, ...] = (
     "stress",
     "previous_sound",
     "next_sound",
+    "previous_word",
+    "next_word",
     "time",
     "f1",
     "f2",
+    "f3",
     "f1_normed",
     "f2_normed",
+    "f3_normed",
     "original_order",
+    "Moras",
+    "Syllabification",
+    "aole",
+    "kaika",
+    "maikai",
+    "Kinney1956",
+    "articles",
+    "demons",
+    "particles",
+    "directionals",
+    "pronouns",
+    "interrogatives",
+    "funct",
+    "manawa",
+    "mea",
+    "ae",
     "start",
     "word_start",
+    "word_end",
 )
+
+FUNCTION_WORD_COLUMNS: tuple[str, ...] = (
+    "aole",
+    "kaika",
+    "maikai",
+    "Kinney1956",
+    "articles",
+    "demons",
+    "particles",
+    "directionals",
+    "pronouns",
+    "interrogatives",
+    "funct",
+    "manawa",
+    "mea",
+    "ae",
+)
+
+INTERVIEW_URL_SUFFIX = (
+    "e=-------en-20--1--txt-txIN%7CtxTI%7CtxTA%7CtxCO%7CtxTY%7CtxLA%7CtxKE%7C"
+    "txPR%7CtxSG%7CtxTO%7CtxTG%7CtxSM%7CtxTR%7CtxSP%7CtxCT%7CtxET%7CtxHT"
+    "--------------------"
+)
+SPEAKER_EPISODES: dict[str, str] = {
+    "IN": "013",
+    "RM": "014",
+    "JM": "016",
+    "HM": "021",
+    "LV": "032",
+    "SB": "033",
+    "AA": "057",
+    "DK": "063",
+}
 
 
 class DataStore:
@@ -92,6 +146,17 @@ def normalize_word_query(value: str) -> str:
     return normalized.casefold()
 
 
+def _valid_function_columns(columns: list[str] | None) -> list[str]:
+    if not columns:
+        return []
+    allowed = set(FUNCTION_WORD_COLUMNS)
+    return [col for col in columns if col in allowed]
+
+
+def _function_flags(row: dict) -> dict[str, bool]:
+    return {col: bool(row.get(col) or 0) for col in FUNCTION_WORD_COLUMNS}
+
+
 def load_prefix_offsets(path: Path | None = None) -> tuple[dict[str, float], bool]:
     """Load prefix → seconds map. Returns ({}, False) when file is missing/invalid.
 
@@ -133,6 +198,23 @@ def load_dataframe(path: Path | None = None) -> pl.DataFrame:
     log.info("Loading data from %s", target)
     if target.suffix == ".parquet":
         df = pl.read_parquet(target)
+        missing = [col for col in USED_COLUMNS if col not in df.columns]
+        if missing and path is None and DEFAULT_CSV_PATH.exists():
+            log.warning(
+                "%s is missing columns needed by current filters (%s) — loading %s instead",
+                target,
+                ", ".join(missing[:6]) + ("..." if len(missing) > 6 else ""),
+                DEFAULT_CSV_PATH,
+            )
+            target = DEFAULT_CSV_PATH
+            df = pl.read_csv(
+                target,
+                columns=list(USED_COLUMNS),
+                null_values=["NA", ""],
+            )
+            before = df.height
+            df = df.filter(pl.col("stress") != "0")
+            log.info("Filtered stress==0: dropped %d rows", before - df.height)
     else:
         df = pl.read_csv(
             target,
@@ -202,6 +284,13 @@ def audio_url(speaker: str, filename: str) -> str:
     return f"{AUDIO_URL_BASE}/{speaker}/{sub}/{filename}.wav"
 
 
+def interview_url(speaker: str) -> str | None:
+    episode = SPEAKER_EPISODES.get(speaker)
+    if not episode:
+        return None
+    return f"https://ulukau.org/kaniaina/?a=d&d=A-KLH-HV24-{episode}&{INTERVIEW_URL_SUFFIX}"
+
+
 def filename_prefix(filename: str) -> str:
     """Prefix used to look up an interview offset.
 
@@ -235,6 +324,7 @@ def token_detail(df: pl.DataFrame, prefix_offsets: dict[str, float], token_id: s
         "next_sound": first.get("next_sound"),
         "start": float(first["start"]),
         "audio_url": audio_url(speaker, filename),
+        "interview_url": interview_url(speaker),
         "interview_seconds": interview_seconds,
         "interview_offset_available": offset is not None,
     }
@@ -260,6 +350,7 @@ def metadata_payload(df: pl.DataFrame) -> dict:
         "prev_sounds": prev_sounds,
         "next_sounds": next_sounds,
         "vowel_types": vowel_types,
+        "function_word_columns": list(FUNCTION_WORD_COLUMNS),
     }
 
 
@@ -269,6 +360,9 @@ def filter_tokens(
     speakers: list[str] | None,
     vowels: list[str] | None,
     stresses: list[str] | None,
+    function_include: list[str] | None = None,
+    function_exclude: list[str] | None = None,
+    word_q: str | None = None,
 ) -> pl.DataFrame:
     out = df
     if speakers:
@@ -277,6 +371,18 @@ def filter_tokens(
         out = out.filter(pl.col("vowel").is_in(vowels))
     if stresses:
         out = out.filter(pl.col("stress").is_in(stresses))
+    for col in _valid_function_columns(function_include):
+        if col not in out.columns:
+            continue
+        out = out.filter(pl.col(col).fill_null(0).cast(pl.Int64) == 1)
+    for col in _valid_function_columns(function_exclude):
+        if col not in out.columns:
+            continue
+        out = out.filter(pl.col(col).fill_null(0).cast(pl.Int64) != 1)
+    if word_q:
+        query_key = normalize_word_query(word_q)
+        if query_key:
+            out = out.filter(pl.col("word_search_key").str.contains(query_key, literal=True))
     return out
 
 
@@ -303,4 +409,5 @@ def tokens_payload(filtered: pl.DataFrame, *, limit: int | None) -> dict:
     rows = out.rename({"Speaker": "speaker"}).to_dicts()
     for row in rows:
         row["audio_url"] = audio_url(str(row["speaker"]), str(row["filename"]))
+        row["function_flags"] = _function_flags(row)
     return {"n_tokens": n_tokens, "n_rows": len(rows), "rows": rows}

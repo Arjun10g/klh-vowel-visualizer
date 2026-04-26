@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const VowelTypeSchema = z.enum(["monophthong", "diphthong"]);
+const VowelTypeSchema = z.enum(["monophthong", "diphthong", "special"]);
 
 export const MetadataSchema = z.object({
   speakers: z.array(z.string()),
@@ -9,6 +9,7 @@ export const MetadataSchema = z.object({
   prev_sounds: z.array(z.string()),
   next_sounds: z.array(z.string()),
   vowel_types: z.record(z.string(), VowelTypeSchema),
+  function_word_columns: z.array(z.string()),
 });
 export type Metadata = z.infer<typeof MetadataSchema>;
 
@@ -29,6 +30,7 @@ export const TokenSampleSchema = z.object({
   start: z.number(),
   original_order: z.number(),
   audio_url: z.string().url(),
+  function_flags: z.record(z.string(), z.boolean()),
 });
 export type TokenSample = z.infer<typeof TokenSampleSchema>;
 
@@ -64,6 +66,9 @@ export type TokenFilters = {
   speakers?: string[];
   vowels?: string[];
   stresses?: string[];
+  function_include?: string[];
+  function_exclude?: string[];
+  word_q?: string;
   limit?: number;
 };
 
@@ -84,6 +89,7 @@ export const TokenDetailSchema = z.object({
   next_sound: z.string().nullable(),
   start: z.number(),
   audio_url: z.string().url(),
+  interview_url: z.string().url().nullable().optional(),
   interview_seconds: z.number().nullable(),
   interview_offset_available: z.boolean(),
 });
@@ -100,6 +106,7 @@ export const TrajectoryPointSchema = z.object({
   f1: z.number(),
   f2: z.number(),
 });
+export type TrajectoryPoint = z.infer<typeof TrajectoryPointSchema>;
 
 export const TrajectoryGroupSchema = z.object({
   group_key: z.string(),
@@ -128,6 +135,8 @@ export type WordSearchFilters = {
   q: string;
   speakers?: string[];
   stresses?: string[];
+  function_include?: string[];
+  function_exclude?: string[];
   limit?: number;
 };
 
@@ -204,6 +213,8 @@ export type WordPlotFilters = {
   word: string;
   speakers?: string[];
   stresses?: string[];
+  function_include?: string[];
+  function_exclude?: string[];
   normalize?: string;
   weighting?: "mean_of_means" | "pooled";
   smoothing?: number;
@@ -232,6 +243,8 @@ export type TrajectoryFilters = {
   speakers?: string[];
   vowels?: string[];
   stresses?: string[];
+  function_include?: string[];
+  function_exclude?: string[];
   normalize?: string; // "true"/"false"
   group_by?: GroupByDim[];
   weighting?: "mean_of_means" | "pooled";
@@ -270,6 +283,8 @@ export type ContourFilters = {
   speakers?: string[];
   vowels?: string[];
   stresses?: string[];
+  function_include?: string[];
+  function_exclude?: string[];
   normalize?: string;
   group_by?: GroupByDim[];
   grid_size?: number;

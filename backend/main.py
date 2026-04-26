@@ -93,6 +93,9 @@ def tokens(
     speakers: Annotated[list[str] | None, Query()] = None,
     vowels: Annotated[list[str] | None, Query()] = None,
     stresses: Annotated[list[str] | None, Query()] = None,
+    function_include: Annotated[list[str] | None, Query()] = None,
+    function_exclude: Annotated[list[str] | None, Query()] = None,
+    word_q: Annotated[str | None, Query()] = None,
     limit: Annotated[int | None, Query(ge=1, le=5000)] = 500,
 ) -> TokensResponse:
     """Return filtered token-level formant tracks.
@@ -106,6 +109,9 @@ def tokens(
         speakers=speakers,
         vowels=vowels,
         stresses=stresses,
+        function_include=function_include,
+        function_exclude=function_exclude,
+        word_q=word_q,
     )
     payload = tokens_payload(filtered, limit=limit)
     return TokensResponse(**payload)
@@ -125,6 +131,8 @@ def words(
     q: Annotated[str, Query()] = "",
     speakers: Annotated[list[str] | None, Query()] = None,
     stresses: Annotated[list[str] | None, Query()] = None,
+    function_include: Annotated[list[str] | None, Query()] = None,
+    function_exclude: Annotated[list[str] | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=2000)] = 20,
 ) -> WordsResponse:
     """Search recorded corpus words under the active filters."""
@@ -133,6 +141,8 @@ def words(
         q=q,
         speakers=speakers,
         stresses=stresses,
+        function_include=function_include,
+        function_exclude=function_exclude,
         limit=limit,
     )
     return WordsResponse(**payload)
@@ -143,10 +153,12 @@ def word_plot(
     word: Annotated[str, Query()] = "",
     speakers: Annotated[list[str] | None, Query()] = None,
     stresses: Annotated[list[str] | None, Query()] = None,
+    function_include: Annotated[list[str] | None, Query()] = None,
+    function_exclude: Annotated[list[str] | None, Query()] = None,
     normalize: Annotated[bool, Query()] = False,
     weighting: Annotated[Weighting, Query()] = "mean_of_means",
     smoothing: Annotated[float, Query(ge=0, le=100000)] = 500.0,
-    n_eval_points: Annotated[int, Query(ge=10, le=500)] = 100,
+    n_eval_points: Annotated[int, Query(ge=1, le=500)] = 100,
     limit: Annotated[int, Query(ge=1, le=2000)] = 500,
 ) -> WordPlotResponse:
     """Return actual recorded occurrences for one corpus word."""
@@ -155,6 +167,8 @@ def word_plot(
         word=word,
         speakers=speakers,
         stresses=stresses,
+        function_include=function_include,
+        function_exclude=function_exclude,
         normalize=normalize,
         weighting=weighting,
         smoothing=smoothing,
@@ -169,11 +183,13 @@ def trajectories(
     speakers: Annotated[list[str] | None, Query()] = None,
     vowels: Annotated[list[str] | None, Query()] = None,
     stresses: Annotated[list[str] | None, Query()] = None,
+    function_include: Annotated[list[str] | None, Query()] = None,
+    function_exclude: Annotated[list[str] | None, Query()] = None,
     normalize: Annotated[bool, Query()] = False,
     group_by: Annotated[list[GroupBy] | None, Query()] = None,
     weighting: Annotated[Weighting, Query()] = "mean_of_means",
     smoothing: Annotated[float, Query(ge=0, le=100000)] = 500.0,
-    n_eval_points: Annotated[int, Query(ge=10, le=500)] = 100,
+    n_eval_points: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> TrajectoriesResponse:
     """Pre-computed smoothed trajectories per group/vowel.
 
@@ -186,6 +202,8 @@ def trajectories(
         speakers=speakers,
         vowels=vowels,
         stresses=stresses,
+        function_include=function_include,
+        function_exclude=function_exclude,
         normalize=normalize,
         group_by=effective_group_by,
         weighting=weighting,
@@ -207,6 +225,8 @@ def contours(
     speakers: Annotated[list[str] | None, Query()] = None,
     vowels: Annotated[list[str] | None, Query()] = None,
     stresses: Annotated[list[str] | None, Query()] = None,
+    function_include: Annotated[list[str] | None, Query()] = None,
+    function_exclude: Annotated[list[str] | None, Query()] = None,
     normalize: Annotated[bool, Query()] = False,
     group_by: Annotated[list[GroupBy] | None, Query()] = None,
     grid_size: Annotated[int, Query(ge=20, le=200)] = 60,
@@ -218,6 +238,8 @@ def contours(
         speakers=speakers,
         vowels=vowels,
         stresses=stresses,
+        function_include=function_include,
+        function_exclude=function_exclude,
         normalize=normalize,
         group_by=effective_group_by,
         grid_size=grid_size,

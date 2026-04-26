@@ -4,14 +4,15 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-VowelType = Literal["monophthong", "diphthong"]
+VowelType = Literal["monophthong", "diphthong", "special"]
 
 MONOPHTHONGS: tuple[str, ...] = (
     "a", "ā", "e", "ē", "i", "ī", "o", "ō", "u", "ū",
 )
 DIPHTHONGS: tuple[str, ...] = (
-    "ai", "ae", "ao", "au", "ei", "eu", "iu", "oa", "oi", "ou", "āi", "āu",
+    "ai", "ae", "ao", "au", "ei", "eu", "iu", "oi", "ou", "āi", "āu",
 )
+SPECIAL_VOWELS: tuple[str, ...] = ("oa",)
 
 
 def classify_vowel(v: str) -> VowelType | None:
@@ -19,6 +20,8 @@ def classify_vowel(v: str) -> VowelType | None:
         return "monophthong"
     if v in DIPHTHONGS:
         return "diphthong"
+    if v in SPECIAL_VOWELS:
+        return "special"
     return None
 
 
@@ -29,6 +32,7 @@ class MetadataResponse(BaseModel):
     prev_sounds: list[str]
     next_sounds: list[str]
     vowel_types: dict[str, VowelType]
+    function_word_columns: list[str]
 
 
 class TokenSample(BaseModel):
@@ -54,6 +58,7 @@ class TokenSample(BaseModel):
     start: float
     original_order: int
     audio_url: str
+    function_flags: dict[str, bool]
 
 
 class TokensResponse(BaseModel):
@@ -204,6 +209,7 @@ class TokenDetail(BaseModel):
     next_sound: str | None
     start: float
     audio_url: str
+    interview_url: str | None = None
     interview_seconds: float | None = Field(
         None,
         description=(

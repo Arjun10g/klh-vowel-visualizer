@@ -7,6 +7,7 @@ import {
   type TrajectoriesResponse,
   type TrajectoryGroup,
 } from "../lib/api";
+import { functionFilterParams } from "../lib/functionFilters";
 import { useDebouncedValue } from "../lib/hooks";
 import { buildPanels } from "../lib/panels";
 import { useFilters } from "../store/filters";
@@ -32,10 +33,15 @@ export function RawContoursTab() {
   const vowels = useFilters((s) => s.vowels);
   const stresses = useFilters((s) => s.stresses);
   const speakerMode = useFilters((s) => s.speakerMode);
+  const pointMode = useFilters((s) => s.pointMode);
+  const wordQuery = useFilters((s) => s.wordQuery);
+  const functionWordModes = useFilters((s) => s.functionWordModes);
   const opacity = useFilters((s) => s.contourPointOpacity);
   const smoothingRaw = useFilters((s) => s.smoothing);
   const smoothing = useDebouncedValue(smoothingRaw, 200);
   const weighting = useFilters((s) => s.weighting);
+  const functionParams = useMemo(() => functionFilterParams(functionWordModes), [functionWordModes]);
+  const functionKey = JSON.stringify(functionParams);
 
   const [data, setData] = useState<TokensResponse | null>(null);
   const [traj, setTraj] = useState<TrajectoriesResponse | null>(null);
@@ -47,7 +53,7 @@ export function RawContoursTab() {
     let cancelled = false;
     setLoading(true);
     setErr(null);
-    fetchTokens({ speakers, vowels, stresses, limit: 800 })
+    fetchTokens({ speakers, vowels, stresses, ...functionParams, limit: 800 })
       .then((d) => {
         if (!cancelled) setData(d);
       })
@@ -60,9 +66,9 @@ export function RawContoursTab() {
     return () => {
       cancelled = true;
     };
-  }, [speakers, vowels, stresses]);
+  }, [speakers, vowels, stresses, functionKey, functionParams]);
 
-  const useNormalized = speakerMode === "separate" && speakers.length > 1;
+  const useNormalized = speakerMode === "merged";
 
   // Trajectories fetch — also depends on smoothing/weighting/normalize.
   useEffect(() => {
@@ -71,6 +77,7 @@ export function RawContoursTab() {
       speakers,
       vowels,
       stresses,
+      ...functionParams,
       normalize: useNormalized ? "true" : "false",
       group_by: speakerMode === "separate" ? ["speaker"] : ["none"],
       weighting,
@@ -86,7 +93,7 @@ export function RawContoursTab() {
     return () => {
       cancelled = true;
     };
-  }, [speakers, vowels, stresses, useNormalized, speakerMode, weighting, smoothing]);
+  }, [speakers, vowels, stresses, functionKey, useNormalized, speakerMode, weighting, smoothing, functionParams]);
 
   const panels = useMemo(
     () => (data ? buildPanels(data.rows, speakerMode) : []),
@@ -146,7 +153,7 @@ export function RawContoursTab() {
           {data.n_tokens} tokens · {data.n_rows} samples
           {data.rows.length === 800 ? " (limit reached — narrow filters for full set)" : ""}
         </span>
-        <span>{useNormalized ? "Normalized formants" : "Raw formants (Hz)"} · smoothing s={smoothing.toFixed(0)}</span>
+        <span>{useNormalized ? "Normalized formants" : "Raw formants (Hz)"} · {pointMode === "nine" ? "9 pts" : pointMode === "single" ? "single point" : "auto points"} · smoothing s={smoothing.toFixed(0)}</span>
       </div>
       <VowelLegend vowels={presentVowels} />
       <div
@@ -168,6 +175,8 @@ export function RawContoursTab() {
               samples={p.samples}
               trajectories={trajByGroup.get(trajKey)}
               useNormalized={useNormalized}
+              pointMode={pointMode}
+              wordQuery={wordQuery}
               opacity={opacity}
               xRange={sharedRanges.x ?? undefined}
               yRange={sharedRanges.y ?? undefined}

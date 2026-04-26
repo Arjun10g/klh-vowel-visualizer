@@ -10,6 +10,7 @@ import {
   type WordSlotTrajectory,
   type WordsResponse,
 } from "../lib/api";
+import { functionFilterParams } from "../lib/functionFilters";
 import { useDebouncedValue } from "../lib/hooks";
 import { useFilters } from "../store/filters";
 import { AudioPlayer } from "./AudioPlayer";
@@ -188,18 +189,21 @@ export function CorpusWordTab({ metadata }: Props) {
   const speakers = useFilters((s) => s.speakers);
   const stresses = useFilters((s) => s.stresses);
   const speakerMode = useFilters((s) => s.speakerMode);
+  const functionWordModes = useFilters((s) => s.functionWordModes);
   const setSpeakers = useFilters((s) => s.setSpeakers);
   const setSpeakerMode = useFilters((s) => s.setSpeakerMode);
   const opacity = useFilters((s) => s.trajectoryOpacity);
   const weighting = useFilters((s) => s.weighting);
   const smoothingRaw = useFilters((s) => s.smoothing);
   const smoothing = useDebouncedValue(smoothingRaw, 200);
+  const functionParams = useMemo(() => functionFilterParams(functionWordModes), [functionWordModes]);
+  const functionKey = JSON.stringify(functionParams);
 
   const [wordInput, setWordInput] = useState("");
   const debouncedWord = useDebouncedValue(wordInput, 180);
   const queryKey = normalizeWordInput(debouncedWord);
-  const searchRequestKey = JSON.stringify({ q: queryKey, speakers, stresses });
-  const allWordsRequestKey = JSON.stringify({ speakers, stresses });
+  const searchRequestKey = JSON.stringify({ q: queryKey, speakers, stresses, functionParams });
+  const allWordsRequestKey = JSON.stringify({ speakers, stresses, functionParams });
   const [allWordsState, setAllWordsState] = useState<WordsState | null>(null);
   const [wordsState, setWordsState] = useState<WordsState | null>(null);
   const [plotState, setPlotState] = useState<PlotState | null>(null);
@@ -213,7 +217,7 @@ export function CorpusWordTab({ metadata }: Props) {
     void Promise.resolve().then(() => {
       if (!cancelled) setLoadingWords(true);
     });
-    fetchWords({ q: "", speakers, stresses, limit: 2000 })
+    fetchWords({ q: "", speakers, stresses, ...functionParams, limit: 2000 })
       .then((data) => {
         if (!cancelled) {
           setErr(null);
@@ -229,7 +233,7 @@ export function CorpusWordTab({ metadata }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [allWordsRequestKey, speakers, stresses]);
+  }, [allWordsRequestKey, speakers, stresses, functionKey, functionParams]);
 
   useEffect(() => {
     const q = debouncedWord.trim();
@@ -238,7 +242,7 @@ export function CorpusWordTab({ metadata }: Props) {
     void Promise.resolve().then(() => {
       if (!cancelled) setLoadingWords(true);
     });
-    fetchWords({ q, speakers, stresses, limit: 8 })
+    fetchWords({ q, speakers, stresses, ...functionParams, limit: 8 })
       .then((data) => {
         if (!cancelled) {
           setErr(null);
@@ -254,7 +258,7 @@ export function CorpusWordTab({ metadata }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [debouncedWord, searchRequestKey, speakers, stresses]);
+  }, [debouncedWord, searchRequestKey, speakers, stresses, functionKey, functionParams]);
 
   const allWords = allWordsState?.key === allWordsRequestKey ? allWordsState.data : null;
   const words = queryKey
@@ -266,11 +270,12 @@ export function CorpusWordTab({ metadata }: Props) {
     return words.matches.find((match) => normalizeWordInput(match.word) === queryKey) ?? null;
   }, [queryKey, words]);
 
-  const useNormalized = speakerMode === "separate" && speakers.length !== 1;
+  const useNormalized = speakerMode === "merged";
   const plotRequestKey = JSON.stringify({
     word: exactMatch?.word ?? "",
     speakers,
     stresses,
+    functionParams,
     normalize: useNormalized,
     weighting,
     smoothing,
@@ -286,6 +291,7 @@ export function CorpusWordTab({ metadata }: Props) {
       word: exactMatch.word,
       speakers,
       stresses,
+      ...functionParams,
       normalize: useNormalized ? "true" : "false",
       weighting,
       smoothing,
@@ -306,7 +312,7 @@ export function CorpusWordTab({ metadata }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [exactMatch, plotRequestKey, speakers, stresses, useNormalized, weighting, smoothing]);
+  }, [exactMatch, plotRequestKey, speakers, stresses, functionKey, useNormalized, weighting, smoothing, functionParams]);
 
   const plot = plotState?.key === plotRequestKey ? plotState.data : null;
   const audioExamples = useMemo(() => (plot ? collectWordAudioExamples(plot) : []), [plot]);

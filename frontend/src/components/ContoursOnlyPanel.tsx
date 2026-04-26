@@ -108,6 +108,7 @@ export function ContoursOnlyPanel({
         bordercolor: color,
         borderwidth: 1.5,
         borderpad: 3,
+        captureevents: false,
       };
     })
     .filter(Boolean);
@@ -142,7 +143,7 @@ export function ContoursOnlyPanel({
             autorange: xRange ? false : "reversed",
             range: xRange ? [xRange[1], xRange[0]] : undefined,
             zeroline: false,
-            gridcolor: "#eef0f4",
+            gridcolor: "#cbd5e1",
             tickfont: { size: 10 },
           },
           yaxis: {
@@ -150,13 +151,13 @@ export function ContoursOnlyPanel({
             autorange: yRange ? false : "reversed",
             range: yRange ? [yRange[1], yRange[0]] : undefined,
             zeroline: false,
-            gridcolor: "#eef0f4",
+            gridcolor: "#cbd5e1",
             tickfont: { size: 10 },
           },
           margin: { l: 56, r: 16, t: 36, b: insufficient.length > 0 ? 60 : 46 },
           showlegend: false,
-          plot_bgcolor: "#fafbff",
-          paper_bgcolor: "#ffffff",
+          plot_bgcolor: "#e8f3ff",
+          paper_bgcolor: "#f8fbff",
           hovermode: false,
           annotations,
         }}

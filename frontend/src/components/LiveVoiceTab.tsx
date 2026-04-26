@@ -12,6 +12,7 @@ import {
   type TrajectoryGroup,
 } from "../lib/api";
 import { colorForVowel } from "../lib/colors";
+import { functionFilterParams } from "../lib/functionFilters";
 import { estimateFormants, type FormantEstimate } from "../lib/liveFormants";
 import { useDebouncedValue } from "../lib/hooks";
 import { useFilters } from "../store/filters";
@@ -34,6 +35,7 @@ const Plot = createPlotlyComponent(Plotly) as React.ComponentType<{
 }>;
 
 type TargetMode = "average" | "voices";
+type TrackingMode = "single" | "multi";
 
 interface Props {
   metadata: Metadata;
@@ -95,6 +97,19 @@ function targetTraceName(group: TrajectoryGroup, targetMode: TargetMode): string
   return "Corpus average";
 }
 
+function corpusTargetPoint(groups: TrajectoryGroup[]): { f1: number; f2: number } | null {
+  if (groups.length === 0) return null;
+  const points = groups.map((group) =>
+    group.points.reduce((best, point) =>
+      Math.abs(point.time - 5) < Math.abs(best.time - 5) ? point : best
+    )
+  );
+  return {
+    f1: points.reduce((sum, point) => sum + point.f1, 0) / points.length,
+    f2: points.reduce((sum, point) => sum + point.f2, 0) / points.length,
+  };
+}
+
 function uniqueTokenExamples(rows: TokenSample[], limit = 6): TokenSample[] {
   const out: TokenSample[] = [];
   const seen = new Set<string>();
@@ -111,13 +126,19 @@ export function LiveVoiceTab({ metadata }: Props) {
   const speakers = useFilters((s) => s.speakers);
   const stresses = useFilters((s) => s.stresses);
   const weighting = useFilters((s) => s.weighting);
+  const functionWordModes = useFilters((s) => s.functionWordModes);
   const smoothingRaw = useFilters((s) => s.smoothing);
   const smoothing = useDebouncedValue(smoothingRaw, 200);
+  const functionParams = useMemo(() => functionFilterParams(functionWordModes), [functionWordModes]);
+  const functionKey = JSON.stringify(functionParams);
 
   const [targetVowel, setTargetVowel] = useState(() =>
     metadata.vowels.includes("a") ? "a" : metadata.vowels[0] ?? "",
   );
   const [targetMode, setTargetMode] = useState<TargetMode>("average");
+  const [trackingMode, setTrackingMode] = useState<TrackingMode>("multi");
+  const [maxFrequency, setMaxFrequency] = useState(5000);
+  const [lpcOrder, setLpcOrder] = useState(12);
   const [targetData, setTargetData] = useState<TrajectoriesResponse | null>(null);
   const [exampleTokens, setExampleTokens] = useState<TokenSample[]>([]);
   const [loadingTarget, setLoadingTarget] = useState(false);
@@ -134,6 +155,7 @@ export function LiveVoiceTab({ metadata }: Props) {
   const bufferRef = useRef<Float32Array<ArrayBuffer> | null>(null);
   const lastTickRef = useRef(0);
   const startTimeRef = useRef(0);
+  const estimateRef = useRef<FormantEstimate | null>(null);
 
   const stopMic = useCallback((updateState = true) => {
     if (rafRef.current !== null) {
@@ -168,6 +190,7 @@ export function LiveVoiceTab({ metadata }: Props) {
     targetMode,
     speakers,
     stresses,
+    functionParams,
     weighting,
     smoothing,
   });
@@ -182,6 +205,7 @@ export function LiveVoiceTab({ metadata }: Props) {
       speakers,
       vowels: [targetVowel],
       stresses,
+      ...functionParams,
       normalize: "false",
       group_by: targetGroupBy,
       weighting,
@@ -203,12 +227,13 @@ export function LiveVoiceTab({ metadata }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [targetRequestKey, targetVowel, targetGroupBy, speakers, stresses, weighting, smoothing]);
+  }, [targetRequestKey, targetVowel, targetGroupBy, speakers, stresses, functionKey, weighting, smoothing, functionParams]);
 
   const examplesRequestKey = JSON.stringify({
     targetVowel,
     speakers,
     stresses,
+    functionParams,
   });
 
   useEffect(() => {
@@ -221,6 +246,7 @@ export function LiveVoiceTab({ metadata }: Props) {
       speakers,
       vowels: [targetVowel],
       stresses,
+      ...functionParams,
       limit: 8,
     })
       .then((data) => {
@@ -238,7 +264,13 @@ export function LiveVoiceTab({ metadata }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [examplesRequestKey, targetVowel, speakers, stresses]);
+  }, [examplesRequestKey, targetVowel, speakers, stresses, functionKey, functionParams]);
+
+  const targetGroups = useMemo(() => {
+    if (!targetData) return [];
+    return targetData.groups.filter((group) => group.vowel === targetVowel && group.points.length > 0);
+  }, [targetData, targetVowel]);
+  const targetPoint = useMemo(() => corpusTargetPoint(targetGroups), [targetGroups]);
 
   const startMic = useCallback(async () => {
     if (listening) return;
@@ -252,6 +284,7 @@ export function LiveVoiceTab({ metadata }: Props) {
     try {
       setErr(null);
       setEstimate(null);
+      estimateRef.current = null;
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: false,
@@ -282,8 +315,15 @@ export function LiveVoiceTab({ metadata }: Props) {
         if (now - lastTickRef.current < 90) return;
         lastTickRef.current = now;
         currentAnalyser.getFloatTimeDomainData(buffer);
-        const next = estimateFormants(buffer, currentAudioCtx.sampleRate);
+        const next = estimateFormants(buffer, currentAudioCtx.sampleRate, {
+          mode: trackingMode,
+          maxFrequency,
+          lpcOrder,
+          previous: estimateRef.current,
+          target: targetPoint,
+        });
         if (!next) return;
+        estimateRef.current = next;
         setEstimate(next);
         setPoints((prev) => [
           ...prev.slice(-119),
@@ -296,12 +336,7 @@ export function LiveVoiceTab({ metadata }: Props) {
       stopMic();
       setErr(e instanceof Error ? e.message : String(e));
     }
-  }, [listening, stopMic]);
-
-  const targetGroups = useMemo(() => {
-    if (!targetData) return [];
-    return targetData.groups.filter((group) => group.vowel === targetVowel && group.points.length > 0);
-  }, [targetData, targetVowel]);
+  }, [listening, stopMic, trackingMode, maxFrequency, lpcOrder, targetPoint]);
 
   const ranges = useMemo(() => {
     const xs = [...DEFAULT_X_RANGE];
@@ -442,6 +477,52 @@ export function LiveVoiceTab({ metadata }: Props) {
           />
         </div>
 
+        <div className="w-56 max-w-full">
+          <SegmentedControl
+            label="Tracking"
+            value={trackingMode}
+            onChange={setTrackingMode}
+            options={[
+              { value: "multi", label: "Multi" },
+              { value: "single", label: "Single" },
+            ]}
+          />
+        </div>
+
+        <label className="flex min-w-36 flex-col gap-1 text-sm text-slate-700">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Max formant
+          </span>
+          <select
+            value={maxFrequency}
+            onChange={(event) => setMaxFrequency(Number(event.target.value))}
+            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+          >
+            {[3500, 4000, 4500, 5000, 5500, 6000, 6500].map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex min-w-28 flex-col gap-1 text-sm text-slate-700">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            LPC order
+          </span>
+          <select
+            value={lpcOrder}
+            onChange={(event) => setLpcOrder(Number(event.target.value))}
+            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+          >
+            {[8, 10, 12, 14, 16, 18].map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <button
           type="button"
           onClick={listening ? () => stopMic() : startMic}
@@ -460,6 +541,7 @@ export function LiveVoiceTab({ metadata }: Props) {
           onClick={() => {
             setPoints([]);
             setEstimate(null);
+            estimateRef.current = null;
           }}
           disabled={points.length === 0 && !estimate}
           className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-indigo-200 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
@@ -495,7 +577,7 @@ export function LiveVoiceTab({ metadata }: Props) {
                 autorange: false,
                 range: [ranges.x[1], ranges.x[0]],
                 zeroline: false,
-                gridcolor: "#e5e7eb",
+                gridcolor: "#cbd5e1",
                 tickfont: { size: 11 },
               },
               yaxis: {
@@ -503,7 +585,7 @@ export function LiveVoiceTab({ metadata }: Props) {
                 autorange: false,
                 range: [ranges.y[1], ranges.y[0]],
                 zeroline: false,
-                gridcolor: "#e5e7eb",
+                gridcolor: "#cbd5e1",
                 tickfont: { size: 11 },
               },
               margin: { l: 58, r: 18, t: 38, b: 50 },
@@ -514,8 +596,8 @@ export function LiveVoiceTab({ metadata }: Props) {
                 y: 1.08,
                 font: { size: 11 },
               },
-              plot_bgcolor: "#f8fafc",
-              paper_bgcolor: "#ffffff",
+              plot_bgcolor: "#e8f3ff",
+              paper_bgcolor: "#f8fbff",
               hovermode: "closest",
               hoverlabel: { bgcolor: "#0f172a", font: { color: "#ffffff", size: 12 } },
             }}
@@ -540,6 +622,14 @@ export function LiveVoiceTab({ metadata }: Props) {
               <dt className="text-slate-500">Confidence</dt>
               <dd className="text-right font-mono text-slate-800">
                 {formatNumber(estimate?.confidence, 2)}
+              </dd>
+              <dt className="text-slate-500">Max formant</dt>
+              <dd className="text-right font-mono text-slate-800">
+                {formatNumber(estimate?.maxFrequency ?? maxFrequency)} Hz
+              </dd>
+              <dt className="text-slate-500">LPC order</dt>
+              <dd className="text-right font-mono text-slate-800">
+                {formatNumber(estimate?.lpcOrder ?? lpcOrder)}
               </dd>
             </dl>
           </div>

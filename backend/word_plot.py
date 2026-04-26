@@ -56,10 +56,19 @@ def word_search_payload(
     q: str,
     speakers: list[str] | None,
     stresses: list[str] | None,
+    function_include: list[str] | None,
+    function_exclude: list[str] | None,
     limit: int,
 ) -> dict:
     query_key = normalize_word_query(q)
-    rows = filter_tokens(df, speakers=speakers, vowels=None, stresses=stresses)
+    rows = filter_tokens(
+        df,
+        speakers=speakers,
+        vowels=None,
+        stresses=stresses,
+        function_include=function_include,
+        function_exclude=function_exclude,
+    )
     if rows.height == 0:
         return {"query": q, "matches": []}
 
@@ -300,6 +309,8 @@ def word_plot_payload(
     word: str,
     speakers: list[str] | None,
     stresses: list[str] | None,
+    function_include: list[str] | None,
+    function_exclude: list[str] | None,
     normalize: bool,
     weighting: Weighting,
     smoothing: float,
@@ -316,7 +327,14 @@ def word_plot_payload(
             n_eval_points=n_eval_points,
         )
 
-    rows = filter_tokens(df, speakers=speakers, vowels=None, stresses=stresses)
+    rows = filter_tokens(
+        df,
+        speakers=speakers,
+        vowels=None,
+        stresses=stresses,
+        function_include=function_include,
+        function_exclude=function_exclude,
+    )
     rows = rows.filter(pl.col("word_search_key") == word_key)
     if rows.height == 0:
         return _empty_word_plot(
@@ -333,7 +351,14 @@ def word_plot_payload(
     keep_ids = _limited_occurrence_ids(rows, limit=limit)
     limited = rows.filter(pl.col("word_occurrence_id").is_in(keep_ids))
     occurrences = _build_occurrences(limited)
-    comparison_rows = filter_tokens(df, speakers=None, vowels=None, stresses=stresses).filter(
+    comparison_rows = filter_tokens(
+        df,
+        speakers=None,
+        vowels=None,
+        stresses=stresses,
+        function_include=function_include,
+        function_exclude=function_exclude,
+    ).filter(
         pl.col("word_search_key") == word_key
     )
     comparison_occurrences = _build_occurrences(comparison_rows)

@@ -19,8 +19,13 @@ export function VowelPresets({ metadata }: Props) {
     },
     {
       label: "Diphth.",
-      title: "All diphthongs",
+      title: "All diphthongs except oa",
       vowels: metadata.vowels.filter((v) => metadata.vowel_types[v] === "diphthong"),
+    },
+    {
+      label: "oa",
+      title: "Special oa category",
+      vowels: metadata.vowels.filter((v) => metadata.vowel_types[v] === "special"),
     },
     {
       label: "ai/ae/ao/au",

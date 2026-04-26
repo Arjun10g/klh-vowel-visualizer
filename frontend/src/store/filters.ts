@@ -4,6 +4,8 @@ import { persist, createJSONStorage } from "zustand/middleware";
 export type SpeakerMode = "merged" | "separate";
 export type StressMode = "off" | "overlay" | "separate";
 export type Weighting = "mean_of_means" | "pooled";
+export type PointMode = "auto" | "single" | "nine";
+export type FunctionFilterMode = "ignore" | "include" | "exclude";
 
 export interface FiltersState {
   speakers: string[];
@@ -12,6 +14,9 @@ export interface FiltersState {
   speakerMode: SpeakerMode;
   stressMode: StressMode;
   weighting: Weighting;
+  pointMode: PointMode;
+  wordQuery: string;
+  functionWordModes: Record<string, FunctionFilterMode>;
   trajectoryOpacity: number;
   contourPointOpacity: number;
   smoothing: number;
@@ -22,6 +27,9 @@ export interface FiltersState {
   setSpeakerMode: (m: SpeakerMode) => void;
   setStressMode: (m: StressMode) => void;
   setWeighting: (w: Weighting) => void;
+  setPointMode: (m: PointMode) => void;
+  setWordQuery: (q: string) => void;
+  setFunctionWordMode: (column: string, mode: FunctionFilterMode) => void;
   setTrajectoryOpacity: (o: number) => void;
   setContourPointOpacity: (o: number) => void;
   setSmoothing: (s: number) => void;
@@ -38,6 +46,9 @@ export const useFilters = create<FiltersState>()(
       speakerMode: "merged",
       stressMode: "off",
       weighting: "mean_of_means",
+      pointMode: "auto",
+      wordQuery: "",
+      functionWordModes: {},
       trajectoryOpacity: 0.25,
       contourPointOpacity: 0.4,
       smoothing: 500,
@@ -48,6 +59,15 @@ export const useFilters = create<FiltersState>()(
       setSpeakerMode: (speakerMode) => set({ speakerMode }),
       setStressMode: (stressMode) => set({ stressMode }),
       setWeighting: (weighting) => set({ weighting }),
+      setPointMode: (pointMode) => set({ pointMode }),
+      setWordQuery: (wordQuery) => set({ wordQuery }),
+      setFunctionWordMode: (column, mode) =>
+        set((state) => {
+          const next = { ...state.functionWordModes };
+          if (mode === "ignore") delete next[column];
+          else next[column] = mode;
+          return { functionWordModes: next };
+        }),
       setTrajectoryOpacity: (trajectoryOpacity) => set({ trajectoryOpacity }),
       setContourPointOpacity: (contourPointOpacity) => set({ contourPointOpacity }),
       setSmoothing: (smoothing) => set({ smoothing }),
@@ -65,6 +85,9 @@ export const useFilters = create<FiltersState>()(
         speakerMode: s.speakerMode,
         stressMode: s.stressMode,
         weighting: s.weighting,
+        pointMode: s.pointMode,
+        wordQuery: s.wordQuery,
+        functionWordModes: s.functionWordModes,
         trajectoryOpacity: s.trajectoryOpacity,
         contourPointOpacity: s.contourPointOpacity,
         smoothing: s.smoothing,

@@ -8,6 +8,7 @@ import {
   type TrajectoriesResponse,
   type TrajectoryGroup,
 } from "../lib/api";
+import { functionFilterParams } from "../lib/functionFilters";
 import { useDebouncedValue } from "../lib/hooks";
 import { buildPanels } from "../lib/panels";
 import { useFilters } from "../store/filters";
@@ -35,10 +36,15 @@ export function IndividualTrajectoriesTab() {
   const vowels = useFilters((s) => s.vowels);
   const stresses = useFilters((s) => s.stresses);
   const speakerMode = useFilters((s) => s.speakerMode);
+  const pointMode = useFilters((s) => s.pointMode);
+  const wordQuery = useFilters((s) => s.wordQuery);
+  const functionWordModes = useFilters((s) => s.functionWordModes);
   const opacity = useFilters((s) => s.trajectoryOpacity);
   const smoothingRaw = useFilters((s) => s.smoothing);
   const smoothing = useDebouncedValue(smoothingRaw, 200);
   const weighting = useFilters((s) => s.weighting);
+  const functionParams = useMemo(() => functionFilterParams(functionWordModes), [functionWordModes]);
+  const functionKey = JSON.stringify(functionParams);
 
   const [tokens, setTokens] = useState<TokensResponse | null>(null);
   const [traj, setTraj] = useState<TrajectoriesResponse | null>(null);
@@ -52,7 +58,7 @@ export function IndividualTrajectoriesTab() {
     let cancelled = false;
     setLoading(true);
     setErr(null);
-    fetchTokens({ speakers, vowels, stresses, limit: TOKEN_LIMIT })
+    fetchTokens({ speakers, vowels, stresses, ...functionParams, limit: TOKEN_LIMIT })
       .then((d) => {
         if (!cancelled) setTokens(d);
       })
@@ -65,9 +71,9 @@ export function IndividualTrajectoriesTab() {
     return () => {
       cancelled = true;
     };
-  }, [speakers, vowels, stresses]);
+  }, [speakers, vowels, stresses, functionKey, functionParams]);
 
-  const useNormalized = speakerMode === "separate" && speakers.length > 1;
+  const useNormalized = speakerMode === "merged";
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +82,7 @@ export function IndividualTrajectoriesTab() {
       speakers,
       vowels,
       stresses,
+      ...functionParams,
       normalize: useNormalized ? "true" : "false",
       group_by: groupBy,
       weighting,
@@ -90,7 +97,7 @@ export function IndividualTrajectoriesTab() {
     return () => {
       cancelled = true;
     };
-  }, [speakers, vowels, stresses, useNormalized, speakerMode, weighting, smoothing]);
+  }, [speakers, vowels, stresses, functionKey, useNormalized, speakerMode, weighting, smoothing, functionParams]);
 
   const panels = useMemo(
     () => (tokens ? buildPanels(tokens.rows, speakerMode) : []),
@@ -152,7 +159,7 @@ export function IndividualTrajectoriesTab() {
             : ""}
         </span>
         <span>
-          {useNormalized ? "Normalized formants" : "Raw formants (Hz)"} · line opacity={opacity.toFixed(2)}
+          {useNormalized ? "Normalized formants" : "Raw formants (Hz)"} · {pointMode === "nine" ? "9 pts" : pointMode === "single" ? "single point" : "auto points"} · line opacity={opacity.toFixed(2)}
         </span>
       </div>
       <VowelLegend vowels={presentVowels} />
@@ -170,6 +177,8 @@ export function IndividualTrajectoriesTab() {
               samples={p.samples}
               trajectories={trajByGroup.get(trajKey)}
               useNormalized={useNormalized}
+              pointMode={pointMode}
+              wordQuery={wordQuery}
               opacity={opacity}
               xRange={sharedRanges.x ?? undefined}
               yRange={sharedRanges.y ?? undefined}
