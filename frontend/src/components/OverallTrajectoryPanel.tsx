@@ -259,9 +259,11 @@ export function OverallTrajectoryPanel({
       if (n < 2 || !t.showArrow) return null;
       const xEnd = t.x[n - 1];
       const yEnd = t.y[n - 1];
-      // Use a point a bit upstream as the arrow tail so the arrow has a clear
-      // direction. Plotly draws arrows from (ax, ay) → (x, y).
-      const upstream = Math.max(0, n - 8);
+      // Arrow tail = the point just before the terminus. Picking a fixed
+      // index offset (e.g. n-8) blew up when n_eval_points dropped from 100
+      // to 9 — the "tail" landed near the START of the curve and Plotly
+      // drew the arrow as a long chord that read as a second trajectory.
+      const upstream = Math.max(0, n - 2);
       return {
         x: xEnd,
         y: yEnd,
