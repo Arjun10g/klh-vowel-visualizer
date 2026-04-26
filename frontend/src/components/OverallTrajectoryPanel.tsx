@@ -187,17 +187,38 @@ export function OverallTrajectoryPanel({
   // One line trace per diphthong group; stress-overlay produces one trace per
   // (vowel, stress) pair so dashes can differ. Hide tracenames in the legend
   // — the parent renders the shared HTML legend.
-  const linePlotTraces = lineTraces.map((t) => ({
-    type: "scatter",
-    mode: "lines+markers",
-    name: t.stress ? `${t.vowel} (${t.stress})` : t.vowel,
-    x: t.x,
-    y: t.y,
-    line: { color: t.color, width: 2.5, dash: t.dash, shape: "spline" },
-    marker: { color: t.color, size: 5, line: { color: "#ffffff", width: 0.8 } },
-    hoverinfo: "name",
-    showlegend: false,
-  }));
+  //
+  // Arrow at the terminus is the LAST marker of the trace, using Plotly's
+  // marker.symbol="arrow" + marker.angleref="previous" to auto-rotate it
+  // along the curve's tangent. Cleaner than a separate annotation arrow,
+  // which used to draw as a long chord across the panel when n_eval_points
+  // was small (the "doubled trajectory" bug).
+  const linePlotTraces = lineTraces.map((t) => {
+    const lastIdx = t.x.length - 1;
+    const symbols = t.x.map((_, i) =>
+      t.showArrow && i === lastIdx ? "arrow" : "circle"
+    );
+    const sizes = t.x.map((_, i) =>
+      t.showArrow && i === lastIdx ? 16 : 5
+    );
+    return {
+      type: "scatter",
+      mode: "lines+markers",
+      name: t.stress ? `${t.vowel} (${t.stress})` : t.vowel,
+      x: t.x,
+      y: t.y,
+      line: { color: t.color, width: 2.5, dash: t.dash, shape: "spline" },
+      marker: {
+        color: t.color,
+        size: sizes,
+        symbol: symbols,
+        angleref: "previous",
+        line: { color: "#ffffff", width: 0.8 },
+      },
+      hoverinfo: "name",
+      showlegend: false,
+    };
+  });
 
   // Monophthongs as a single scatter trace per stress (so dashes don't apply
   // — they're points). For stress-overlay we still color-code per vowel and
@@ -253,35 +274,8 @@ export function OverallTrajectoryPanel({
         captureevents: false,
       };
     }),
-    // Arrow at the diphthong terminus pointing along the trajectory.
-    ...lineTraces.map((t) => {
-      const n = t.x.length;
-      if (n < 2 || !t.showArrow) return null;
-      const xEnd = t.x[n - 1];
-      const yEnd = t.y[n - 1];
-      // Arrow tail = the point just before the terminus. Picking a fixed
-      // index offset (e.g. n-8) blew up when n_eval_points dropped from 100
-      // to 9 — the "tail" landed near the START of the curve and Plotly
-      // drew the arrow as a long chord that read as a second trajectory.
-      const upstream = Math.max(0, n - 2);
-      return {
-        x: xEnd,
-        y: yEnd,
-        ax: t.x[upstream],
-        ay: t.y[upstream],
-        xref: "x",
-        yref: "y",
-        axref: "x",
-        ayref: "y",
-        showarrow: true,
-        arrowhead: 3,
-        arrowsize: 1.2,
-        arrowwidth: 2,
-        arrowcolor: t.color,
-        text: "",
-        standoff: 0,
-      };
-    }).filter(Boolean),
+    // Diphthong terminus arrow is now drawn as the line trace's last marker
+    // (marker.symbol="arrow" + angleref="previous"). No separate annotation.
   ];
 
   const axisLabels = useNormalized
