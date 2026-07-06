@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import type { Metadata } from "../lib/api";
 import { useFilters, type FunctionFilterMode } from "../store/filters";
 import { MultiSelect } from "./MultiSelect";
+import { NaturalLanguageFilterBar } from "./NaturalLanguageFilterBar";
 import { SegmentedControl } from "./SegmentedControl";
 import { Slider } from "./Slider";
 import { SmoothingControl } from "./SmoothingControl";
@@ -65,6 +66,8 @@ export function LeftRail({ metadata }: Props) {
       <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">
         Filters
       </h2>
+
+      <NaturalLanguageFilterBar metadata={metadata} />
 
       <label className="flex flex-col gap-1 text-sm text-slate-700">
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">

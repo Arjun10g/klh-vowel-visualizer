@@ -1,0 +1,22 @@
+import { expect, test } from "@playwright/test";
+
+test("loads metadata, applies command filters, and syncs URL state", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.getByRole("heading", { name: "Ka Leo Hawaiʻi Vowel Visualizer" })).toBeVisible();
+  await expect(page.getByText("8 speakers · 22 vowels")).toBeVisible();
+
+  const command = page.getByLabel("Command");
+  await command.fill("compare AA DK unstressed ai raw contours");
+  await page.getByRole("button", { name: "Apply" }).click();
+
+  await expect(page.getByRole("button", { name: /Applied/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Raw Contours/ })).toHaveClass(/border-indigo-500/);
+  await expect(page).toHaveURL(/tab=raw_contours/);
+  await expect(page).toHaveURL(/speakers=AA%2CDK/);
+  await expect(page).toHaveURL(/stresses=unstressed/);
+
+  await page.getByRole("button", { name: /Corpus Word/ }).click();
+  await expect(page).toHaveURL(/tab=corpus_word/);
+  await expect(page.getByRole("textbox", { name: "Recorded word" })).toBeVisible();
+});

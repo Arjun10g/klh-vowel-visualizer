@@ -7,10 +7,12 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
-    "plotly.js-dist-min": "^3.5.0",
+    "@huggingface/transformers": "^4.2.0",
+    "plotly.js": "^3.5.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-plotly.js": "^2.6.0",
@@ -19,6 +21,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.61.1",
     "@types/node": "^24.12.2",
     "@types/plotly.js": "^3.0.10",
     "@types/react": "^19.2.14",

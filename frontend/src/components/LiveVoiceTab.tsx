@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import factoryModule from "react-plotly.js/factory";
-import plotlyModule from "plotly.js-dist-min";
 
 import {
   fetchTokens,
@@ -13,26 +11,14 @@ import {
 } from "../lib/api";
 import { colorForVowel } from "../lib/colors";
 import { functionFilterParams } from "../lib/functionFilters";
-import { estimateFormants, type FormantEstimate } from "../lib/liveFormants";
+import type { FormantEstimate } from "../lib/liveFormants";
 import { useDebouncedValue } from "../lib/hooks";
 import { useFilters } from "../store/filters";
 import { LoadingBadge } from "./LoadingBadge";
+import { LazyPlot as Plot } from "./LazyPlot";
 import { type AxisRange } from "./PlotPanel";
 import { SegmentedControl } from "./SegmentedControl";
 import { AudioPlayer } from "./AudioPlayer";
-
-const createPlotlyComponent =
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ((factoryModule as any).default ?? factoryModule) as (p: unknown) => React.ComponentType<unknown>;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const Plotly = (plotlyModule as any).default ?? plotlyModule;
-const Plot = createPlotlyComponent(Plotly) as React.ComponentType<{
-  data: unknown[];
-  layout: unknown;
-  config?: unknown;
-  style?: React.CSSProperties;
-  useResizeHandler?: boolean;
-}>;
 
 type TargetMode = "average" | "voices";
 type TrackingMode = "single" | "multi";
@@ -45,6 +31,11 @@ interface LivePoint extends FormantEstimate {
   elapsed: number;
 }
 
+interface LiveFormantsWorkerResponse {
+  estimate: FormantEstimate | null;
+  elapsed: number;
+}
+
 type WindowWithWebkitAudio = Window & {
   webkitAudioContext?: typeof AudioContext;
 };
@@ -52,6 +43,7 @@ type WindowWithWebkitAudio = Window & {
 const DEFAULT_X_RANGE: AxisRange = [500, 3000];
 const DEFAULT_Y_RANGE: AxisRange = [200, 1100];
 const PADDING = 0.08;
+const LIVE_FRAME_INTERVAL_MS = 60;
 
 const SPEAKER_COLORS = [
   "#2563eb",
@@ -150,7 +142,12 @@ export function LiveVoiceTab({ metadata }: Props) {
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
+  const silentGainRef = useRef<GainNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const workerRef = useRef<Worker | null>(null);
+  const workerBusyRef = useRef(false);
   const rafRef = useRef<number | null>(null);
   const bufferRef = useRef<Float32Array<ArrayBuffer> | null>(null);
   const lastTickRef = useRef(0);
@@ -162,10 +159,28 @@ export function LiveVoiceTab({ metadata }: Props) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
+    if (workletNodeRef.current) {
+      workletNodeRef.current.port.onmessage = null;
+      workletNodeRef.current.disconnect();
+      workletNodeRef.current = null;
+    }
+    if (silentGainRef.current) {
+      silentGainRef.current.disconnect();
+      silentGainRef.current = null;
+    }
+    if (sourceRef.current) {
+      sourceRef.current.disconnect();
+      sourceRef.current = null;
+    }
     if (streamRef.current) {
       for (const track of streamRef.current.getTracks()) track.stop();
       streamRef.current = null;
     }
+    if (workerRef.current) {
+      workerRef.current.terminate();
+      workerRef.current = null;
+    }
+    workerBusyRef.current = false;
     if (audioCtxRef.current) {
       void audioCtxRef.current.close().catch(() => undefined);
       audioCtxRef.current = null;
@@ -293,45 +308,110 @@ export function LiveVoiceTab({ metadata }: Props) {
         },
       });
       const audioCtx = new AudioCtx();
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 4096;
-      analyser.smoothingTimeConstant = 0;
-      audioCtx.createMediaStreamSource(stream).connect(analyser);
-
+      const source = audioCtx.createMediaStreamSource(stream);
       streamRef.current = stream;
       audioCtxRef.current = audioCtx;
-      analyserRef.current = analyser;
-      bufferRef.current = new Float32Array(analyser.fftSize);
+      sourceRef.current = source;
       lastTickRef.current = 0;
       startTimeRef.current = performance.now();
-      setListening(true);
-
-      const tick = (now: number) => {
-        const currentAnalyser = analyserRef.current;
-        const currentAudioCtx = audioCtxRef.current;
-        const buffer = bufferRef.current;
-        if (!currentAnalyser || !currentAudioCtx || !buffer) return;
-        rafRef.current = requestAnimationFrame(tick);
-        if (now - lastTickRef.current < 90) return;
-        lastTickRef.current = now;
-        currentAnalyser.getFloatTimeDomainData(buffer);
-        const next = estimateFormants(buffer, currentAudioCtx.sampleRate, {
-          mode: trackingMode,
-          maxFrequency,
-          lpcOrder,
-          previous: estimateRef.current,
-          target: targetPoint,
-        });
+      const worker = new Worker(new URL("../workers/liveFormants.worker.ts", import.meta.url), {
+        type: "module",
+      });
+      worker.onmessage = (event: MessageEvent<LiveFormantsWorkerResponse>) => {
+        workerBusyRef.current = false;
+        const next = event.data.estimate;
         if (!next) return;
         estimateRef.current = next;
         setEstimate(next);
         setPoints((prev) => [
           ...prev.slice(-119),
-          { ...next, elapsed: (now - startTimeRef.current) / 1000 },
+          { ...next, elapsed: event.data.elapsed },
         ]);
       };
+      worker.onerror = (event) => {
+        workerBusyRef.current = false;
+        setErr(event.message || "Live formant worker failed.");
+      };
+      workerRef.current = worker;
+      setListening(true);
 
-      rafRef.current = requestAnimationFrame(tick);
+      const postFrame = (frame: Float32Array<ArrayBuffer>, now: number) => {
+        const currentAudioCtx = audioCtxRef.current;
+        const workerRefValue = workerRef.current;
+        if (!currentAudioCtx || !workerRefValue) return;
+        if (now - lastTickRef.current < LIVE_FRAME_INTERVAL_MS || workerBusyRef.current) return;
+        lastTickRef.current = now;
+        workerBusyRef.current = true;
+        workerRefValue.postMessage(
+          {
+            frame,
+            sampleRate: currentAudioCtx.sampleRate,
+            elapsed: (now - startTimeRef.current) / 1000,
+            options: {
+              mode: trackingMode,
+              maxFrequency,
+              lpcOrder,
+              previous: estimateRef.current,
+              target: targetPoint,
+            },
+          },
+          [frame.buffer],
+        );
+      };
+
+      let usingWorklet = false;
+      if (audioCtx.audioWorklet && typeof AudioWorkletNode !== "undefined") {
+        let pendingWorkletNode: AudioWorkletNode | null = null;
+        let pendingSilentGain: GainNode | null = null;
+        try {
+          await audioCtx.audioWorklet.addModule(
+            new URL("../worklets/live-formant-capture.worklet.ts", import.meta.url),
+          );
+          pendingWorkletNode = new AudioWorkletNode(audioCtx, "live-formant-capture");
+          pendingSilentGain = audioCtx.createGain();
+          pendingSilentGain.gain.value = 0;
+          pendingWorkletNode.port.onmessage = (
+            event: MessageEvent<Float32Array<ArrayBuffer>>,
+          ) => {
+            if (event.data instanceof Float32Array) postFrame(event.data, performance.now());
+          };
+          source.connect(pendingWorkletNode);
+          pendingWorkletNode.connect(pendingSilentGain);
+          pendingSilentGain.connect(audioCtx.destination);
+          workletNodeRef.current = pendingWorkletNode;
+          silentGainRef.current = pendingSilentGain;
+          usingWorklet = true;
+        } catch {
+          pendingWorkletNode?.disconnect();
+          pendingSilentGain?.disconnect();
+          workletNodeRef.current = null;
+          silentGainRef.current = null;
+        }
+      }
+
+      if (!usingWorklet) {
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 4096;
+        analyser.smoothingTimeConstant = 0;
+        source.connect(analyser);
+        analyserRef.current = analyser;
+        bufferRef.current = new Float32Array(analyser.fftSize);
+
+        const tick = (now: number) => {
+          const currentAnalyser = analyserRef.current;
+          const buffer = bufferRef.current;
+          if (!currentAnalyser || !buffer) return;
+          rafRef.current = requestAnimationFrame(tick);
+          currentAnalyser.getFloatTimeDomainData(buffer);
+          postFrame(new Float32Array(buffer), now);
+        };
+
+        rafRef.current = requestAnimationFrame(tick);
+      }
+
+      if (audioCtx.state === "suspended") {
+        await audioCtx.resume().catch(() => undefined);
+      }
     } catch (e: unknown) {
       stopMic();
       setErr(e instanceof Error ? e.message : String(e));

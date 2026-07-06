@@ -12,6 +12,7 @@ import {
 } from "../lib/api";
 import { functionFilterParams } from "../lib/functionFilters";
 import { useDebouncedValue } from "../lib/hooks";
+import { projectedPanelCount, useNormalizedForPanelCount } from "../lib/panels";
 import { useFilters } from "../store/filters";
 import { AudioPlayer } from "./AudioPlayer";
 import { CorpusWordPanel, type CorpusWordOverlay } from "./CorpusWordPanel";
@@ -270,7 +271,9 @@ export function CorpusWordTab({ metadata }: Props) {
     return words.matches.find((match) => normalizeWordInput(match.word) === queryKey) ?? null;
   }, [queryKey, words]);
 
-  const useNormalized = speakerMode === "merged";
+  const useNormalized = useNormalizedForPanelCount(
+    projectedPanelCount(metadata, speakers, speakerMode, [], "off"),
+  );
   const plotRequestKey = JSON.stringify({
     word: exactMatch?.word ?? "",
     speakers,

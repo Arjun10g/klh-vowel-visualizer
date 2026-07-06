@@ -17,19 +17,14 @@ type Speed = (typeof SPEED_OPTIONS)[number];
 export function AudioPlayer({ src }: Props) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [speed, setSpeed] = useState<Speed>(0.25);
-  const [errMsg, setErrMsg] = useState<string | null>(null);
+  const [error, setError] = useState<{ src: string; message: string } | null>(null);
+  const errMsg = error?.src === src ? error.message : null;
 
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
     el.playbackRate = speed;
   }, [speed, src]);
-
-  // Reset error state on every new src so a transient failure on one token
-  // doesn't shadow the next one.
-  useEffect(() => {
-    setErrMsg(null);
-  }, [src]);
 
   return (
     <div className="flex flex-col gap-2">
@@ -48,7 +43,7 @@ export function AudioPlayer({ src }: Props) {
             3: "Decode error",
             4: "Audio not available (404 or unsupported format)",
           };
-          setErrMsg(labels[code] ?? `Audio failed (code ${code})`);
+          setError({ src, message: labels[code] ?? `Audio failed (code ${code})` });
         }}
       />
       {errMsg && (

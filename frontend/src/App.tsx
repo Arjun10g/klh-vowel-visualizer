@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 
 import { fetchMetadata, type Metadata } from "./lib/api";
 import { ContoursOnlyTab } from "./components/ContoursOnlyTab";
-// Corpus Word is paused for now; leave the import line ready to restore.
-// import { CorpusWordTab } from "./components/CorpusWordTab";
+import { CorpusWordTab } from "./components/CorpusWordTab";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Footer } from "./components/Footer";
 import { IndividualTrajectoriesTab } from "./components/IndividualTrajectoriesTab";
@@ -13,13 +12,13 @@ import { OverallTrajectoriesTab } from "./components/OverallTrajectoriesTab";
 import { RawContoursTab } from "./components/RawContoursTab";
 import { RightRail } from "./components/RightRail";
 import { TabNav } from "./components/TabNav";
+import { UrlStateSync } from "./components/UrlStateSync";
 import { useUi } from "./store/ui";
 
 export default function App() {
   const [metadata, setMetadata] = useState<Metadata | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const tab = useUi((s) => s.tab);
-  const activeTab = tab === "corpus_word" ? "live_voice" : tab;
 
   useEffect(() => {
     fetchMetadata()
@@ -44,6 +43,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-white text-slate-800">
+      <UrlStateSync metadata={metadata} />
       <LeftRail metadata={metadata} />
       <main className="flex flex-1 flex-col overflow-hidden">
         <header className="flex items-center justify-between border-b border-slate-200 px-4 py-2">
@@ -57,13 +57,12 @@ export default function App() {
         <TabNav />
         <div className="flex-1 overflow-auto">
           <ErrorBoundary>
-            {activeTab === "overall" && <OverallTrajectoriesTab />}
-            {activeTab === "individual" && <IndividualTrajectoriesTab />}
-            {activeTab === "raw_contours" && <RawContoursTab />}
-            {activeTab === "contours_only" && <ContoursOnlyTab />}
-            {/* Corpus Word is paused for now; leave the render line ready to restore. */}
-            {/* {activeTab === "corpus_word" && <CorpusWordTab metadata={metadata} />} */}
-            {activeTab === "live_voice" && <LiveVoiceTab metadata={metadata} />}
+            {tab === "overall" && <OverallTrajectoriesTab metadata={metadata} />}
+            {tab === "individual" && <IndividualTrajectoriesTab metadata={metadata} />}
+            {tab === "raw_contours" && <RawContoursTab metadata={metadata} />}
+            {tab === "contours_only" && <ContoursOnlyTab metadata={metadata} />}
+            {tab === "corpus_word" && <CorpusWordTab metadata={metadata} />}
+            {tab === "live_voice" && <LiveVoiceTab metadata={metadata} />}
           </ErrorBoundary>
         </div>
         <Footer />

@@ -4,6 +4,7 @@ import {
   fetchTokens,
   fetchTrajectories,
   type GroupByDim,
+  type Metadata,
   type TokenSample,
   type TokensResponse,
   type TrajectoriesResponse,
@@ -11,6 +12,7 @@ import {
 } from "../lib/api";
 import { functionFilterParams } from "../lib/functionFilters";
 import { useDebouncedValue } from "../lib/hooks";
+import { projectedPanelCount, useNormalizedForPanelCount } from "../lib/panels";
 import { useFilters } from "../store/filters";
 import { LoadingBadge } from "./LoadingBadge";
 import { OverallTrajectoryPanel } from "./OverallTrajectoryPanel";
@@ -37,7 +39,11 @@ interface PanelSpec {
   filter: Partial<Record<"speaker" | "stress", string>>;
 }
 
-export function OverallTrajectoriesTab() {
+interface Props {
+  metadata: Metadata;
+}
+
+export function OverallTrajectoriesTab({ metadata }: Props) {
   const speakers = useFilters((s) => s.speakers);
   const vowels = useFilters((s) => s.vowels);
   const stresses = useFilters((s) => s.stresses);
@@ -58,7 +64,9 @@ export function OverallTrajectoriesTab() {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const useNormalized = speakerMode === "merged";
+  const useNormalized = useNormalizedForPanelCount(
+    projectedPanelCount(metadata, speakers, speakerMode, stresses, stressMode),
+  );
 
   // Backend grouping dims: include speaker iff splitting (separate) or stress
   // is engaged (overlay/separate). Stress is included for both overlay and
@@ -72,8 +80,12 @@ export function OverallTrajectoriesTab() {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setErr(null);
+    void Promise.resolve().then(() => {
+      if (!cancelled) {
+        setLoading(true);
+        setErr(null);
+      }
+    });
     fetchTrajectories({
       speakers,
       vowels,

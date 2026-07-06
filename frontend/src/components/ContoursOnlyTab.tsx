@@ -5,8 +5,10 @@ import {
   type ContourGroup,
   type ContoursResponse,
   type GroupByDim,
+  type Metadata,
 } from "../lib/api";
 import { functionFilterParams } from "../lib/functionFilters";
+import { projectedPanelCount, useNormalizedForPanelCount } from "../lib/panels";
 import { useFilters } from "../store/filters";
 import { ContoursOnlyPanel } from "./ContoursOnlyPanel";
 import { LoadingBadge } from "./LoadingBadge";
@@ -36,7 +38,11 @@ interface PanelSpec {
   filter: Partial<Record<"speaker" | "stress", string>>;
 }
 
-export function ContoursOnlyTab() {
+interface Props {
+  metadata: Metadata;
+}
+
+export function ContoursOnlyTab({ metadata }: Props) {
   const speakers = useFilters((s) => s.speakers);
   const vowels = useFilters((s) => s.vowels);
   const stresses = useFilters((s) => s.stresses);
@@ -60,12 +66,18 @@ export function ContoursOnlyTab() {
     return dims.length === 0 ? ["none"] : dims;
   }, [speakerMode, stressMode]);
 
-  const useNormalized = speakerMode === "merged";
+  const useNormalized = useNormalizedForPanelCount(
+    projectedPanelCount(metadata, speakers, speakerMode, stresses, stressMode),
+  );
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setErr(null);
+    void Promise.resolve().then(() => {
+      if (!cancelled) {
+        setLoading(true);
+        setErr(null);
+      }
+    });
     fetchContours({
       speakers,
       vowels,

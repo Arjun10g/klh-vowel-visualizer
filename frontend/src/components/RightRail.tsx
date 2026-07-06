@@ -54,18 +54,23 @@ export function RightRail() {
   const lastSpokenId = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!tokenId) {
-      setDetail(null);
-      setErr(null);
-      return;
-    }
     let cancelled = false;
-    setErr(null);
-    if (selectedSample?.token_id === tokenId) {
-      setDetail(detailPreview(selectedSample));
-    } else {
-      setDetail(null);
+    if (!tokenId) {
+      void Promise.resolve().then(() => {
+        if (!cancelled) {
+          setDetail(null);
+          setErr(null);
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
     }
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      setErr(null);
+      setDetail(selectedSample?.token_id === tokenId ? detailPreview(selectedSample) : null);
+    });
     fetchTokenDetail(tokenId)
       .then((d) => {
         if (cancelled) return;

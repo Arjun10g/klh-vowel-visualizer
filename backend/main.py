@@ -39,6 +39,16 @@ log = logging.getLogger("klh.backend")
 
 # Built at startup, read-only thereafter.
 _store: DataStore | None = None
+_trajectory_cache: dict[tuple[object, ...], list[dict]] = {}
+_contour_cache: dict[tuple[object, ...], list[dict]] = {}
+
+
+def _sorted_key(values: list[str] | None) -> tuple[str, ...]:
+    return tuple(sorted(values or []))
+
+
+def _ordered_key(values: list[str] | None) -> tuple[str, ...]:
+    return tuple(values or [])
 
 
 @asynccontextmanager
@@ -80,6 +90,8 @@ def health() -> dict:
         "status": "ok",
         "rows": s.df.height,
         "prefix_offsets_loaded": s.prefix_offsets_loaded,
+        "trajectory_cache_entries": len(_trajectory_cache),
+        "contour_cache_entries": len(_contour_cache),
     }
 
 
@@ -197,19 +209,34 @@ def trajectories(
     Order is preserved in the composite group_key so the frontend can rebuild it.
     """
     effective_group_by: list[GroupBy] = group_by or ["none"]
-    groups = compute_trajectories(
-        store().df,
-        speakers=speakers,
-        vowels=vowels,
-        stresses=stresses,
-        function_include=function_include,
-        function_exclude=function_exclude,
-        normalize=normalize,
-        group_by=effective_group_by,
-        weighting=weighting,
-        smoothing=smoothing,
-        n_eval_points=n_eval_points,
+    cache_key = (
+        _sorted_key(speakers),
+        _sorted_key(vowels),
+        _sorted_key(stresses),
+        _sorted_key(function_include),
+        _sorted_key(function_exclude),
+        normalize,
+        _ordered_key(effective_group_by),
+        weighting,
+        float(smoothing),
+        int(n_eval_points),
     )
+    groups = _trajectory_cache.get(cache_key)
+    if groups is None:
+        groups = compute_trajectories(
+            store().df,
+            speakers=speakers,
+            vowels=vowels,
+            stresses=stresses,
+            function_include=function_include,
+            function_exclude=function_exclude,
+            normalize=normalize,
+            group_by=effective_group_by,
+            weighting=weighting,
+            smoothing=smoothing,
+            n_eval_points=n_eval_points,
+        )
+        _trajectory_cache[cache_key] = groups
     return TrajectoriesResponse(
         normalize=normalize,
         group_by=effective_group_by,
@@ -233,17 +260,30 @@ def contours(
 ) -> ContoursResponse:
     """KDE contour grids per (group, vowel)."""
     effective_group_by: list[GroupBy] = group_by or ["none"]
-    groups = compute_contours(
-        store().df,
-        speakers=speakers,
-        vowels=vowels,
-        stresses=stresses,
-        function_include=function_include,
-        function_exclude=function_exclude,
-        normalize=normalize,
-        group_by=effective_group_by,
-        grid_size=grid_size,
+    cache_key = (
+        _sorted_key(speakers),
+        _sorted_key(vowels),
+        _sorted_key(stresses),
+        _sorted_key(function_include),
+        _sorted_key(function_exclude),
+        normalize,
+        _ordered_key(effective_group_by),
+        int(grid_size),
     )
+    groups = _contour_cache.get(cache_key)
+    if groups is None:
+        groups = compute_contours(
+            store().df,
+            speakers=speakers,
+            vowels=vowels,
+            stresses=stresses,
+            function_include=function_include,
+            function_exclude=function_exclude,
+            normalize=normalize,
+            group_by=effective_group_by,
+            grid_size=grid_size,
+        )
+        _contour_cache[cache_key] = groups
     return ContoursResponse(
         normalize=normalize,
         group_by=effective_group_by,

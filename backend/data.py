@@ -392,19 +392,32 @@ def tokens_payload(filtered: pl.DataFrame, *, limit: int | None) -> dict:
     if limit is not None and n_tokens > limit:
         # Stratify across speakers so multi-speaker selections don't get
         # silently dominated by whichever speaker appears first in the CSV.
-        # Each speaker contributes ceil(limit / n_speakers) tokens at most.
+        # Round-robin fill so uneven speaker counts still use the full budget.
         speaker_ids = out.select(["Speaker", "token_id"]).unique(maintain_order=True)
-        speakers = speaker_ids.get_column("Speaker").unique().to_list()
-        per_speaker = max(1, limit // max(1, len(speakers)))
-        keep_ids: list[str] = []
+        speakers = sorted(str(speaker) for speaker in speaker_ids.get_column("Speaker").unique().to_list())
+        ids_by_speaker: dict[str, list[str]] = {}
+        max_len = 0
         for sp in speakers:
-            ids = (
-                speaker_ids.filter(pl.col("Speaker") == sp)
-                .get_column("token_id")
-                .head(per_speaker)
-                .to_list()
-            )
-            keep_ids.extend(ids)
+            ids = [
+                str(token_id)
+                for token_id in (
+                    speaker_ids.filter(pl.col("Speaker") == sp)
+                    .get_column("token_id")
+                    .to_list()
+                )
+            ]
+            ids_by_speaker[sp] = ids
+            max_len = max(max_len, len(ids))
+        keep_ids: list[str] = []
+        for idx in range(max_len):
+            for sp in speakers:
+                ids = ids_by_speaker[sp]
+                if idx < len(ids):
+                    keep_ids.append(ids[idx])
+                    if len(keep_ids) >= limit:
+                        break
+            if len(keep_ids) >= limit:
+                break
         out = out.filter(pl.col("token_id").is_in(keep_ids))
     rows = out.rename({"Speaker": "speaker"}).to_dicts()
     for row in rows:

@@ -1,6 +1,4 @@
 import { useMemo } from "react";
-import factoryModule from "react-plotly.js/factory";
-import plotlyModule from "plotly.js-dist-min";
 import type { PlotMouseEvent } from "plotly.js";
 
 import type { TokenSample, WordPlotOccurrence } from "../lib/api";
@@ -10,21 +8,8 @@ import {
   SELECTED_TOKEN_OUTLINE,
 } from "../lib/colors";
 import { useSelection } from "../store/selection";
+import { LazyPlot as Plot } from "./LazyPlot";
 import type { AxisRange } from "./PlotPanel";
-
-const createPlotlyComponent =
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ((factoryModule as any).default ?? factoryModule) as (p: unknown) => React.ComponentType<unknown>;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const Plotly = (plotlyModule as any).default ?? plotlyModule;
-const Plot = createPlotlyComponent(Plotly) as React.ComponentType<{
-  data: unknown[];
-  layout: unknown;
-  config?: unknown;
-  style?: React.CSSProperties;
-  useResizeHandler?: boolean;
-  onClick?: (e: Readonly<PlotMouseEvent>) => void;
-}>;
 
 interface Props {
   title: string;
@@ -67,7 +52,7 @@ const SPEAKER_COLORS = [
   "#4d7c0f",
 ];
 
-export function colorForCorpusSpeaker(label: string): string {
+function colorForCorpusSpeaker(label: string): string {
   let hash = 0;
   for (let i = 0; i < label.length; i++) {
     hash = (hash * 31 + label.charCodeAt(i)) % SPEAKER_COLORS.length;

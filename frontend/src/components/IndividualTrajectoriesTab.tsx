@@ -4,13 +4,14 @@ import {
   fetchTokens,
   fetchTrajectories,
   type GroupByDim,
+  type Metadata,
   type TokensResponse,
   type TrajectoriesResponse,
   type TrajectoryGroup,
 } from "../lib/api";
 import { functionFilterParams } from "../lib/functionFilters";
 import { useDebouncedValue } from "../lib/hooks";
-import { buildPanels } from "../lib/panels";
+import { buildPanels, projectedPanelCount, useNormalizedForPanelCount } from "../lib/panels";
 import { useFilters } from "../store/filters";
 import { IndividualTrajectoryPanel } from "./IndividualTrajectoryPanel";
 import { LoadingBadge } from "./LoadingBadge";
@@ -31,11 +32,16 @@ function paddedRange(values: number[]): AxisRange | null {
   return [lo - span * PADDING, hi + span * PADDING];
 }
 
-export function IndividualTrajectoriesTab() {
+interface Props {
+  metadata: Metadata;
+}
+
+export function IndividualTrajectoriesTab({ metadata }: Props) {
   const speakers = useFilters((s) => s.speakers);
   const vowels = useFilters((s) => s.vowels);
   const stresses = useFilters((s) => s.stresses);
   const speakerMode = useFilters((s) => s.speakerMode);
+  const stressMode = useFilters((s) => s.stressMode);
   const pointMode = useFilters((s) => s.pointMode);
   const wordQuery = useFilters((s) => s.wordQuery);
   const functionWordModes = useFilters((s) => s.functionWordModes);
@@ -56,8 +62,12 @@ export function IndividualTrajectoriesTab() {
   // practical (still capped to keep Plotly responsive).
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setErr(null);
+    void Promise.resolve().then(() => {
+      if (!cancelled) {
+        setLoading(true);
+        setErr(null);
+      }
+    });
     fetchTokens({ speakers, vowels, stresses, ...functionParams, limit: TOKEN_LIMIT })
       .then((d) => {
         if (!cancelled) setTokens(d);
@@ -73,18 +83,22 @@ export function IndividualTrajectoriesTab() {
     };
   }, [speakers, vowels, stresses, functionKey, functionParams]);
 
-  const useNormalized = speakerMode === "merged";
+  const useNormalized = useNormalizedForPanelCount(
+    projectedPanelCount(metadata, speakers, speakerMode, stresses, stressMode),
+  );
 
   useEffect(() => {
     let cancelled = false;
-    const groupBy: GroupByDim[] = speakerMode === "separate" ? ["speaker"] : ["none"];
+    const groupBy: GroupByDim[] = [];
+    if (speakerMode === "separate") groupBy.push("speaker");
+    if (stressMode === "separate") groupBy.push("stress");
     fetchTrajectories({
       speakers,
       vowels,
       stresses,
       ...functionParams,
       normalize: useNormalized ? "true" : "false",
-      group_by: groupBy,
+      group_by: groupBy.length > 0 ? groupBy : ["none"],
       weighting,
       smoothing,
     })
@@ -97,23 +111,28 @@ export function IndividualTrajectoriesTab() {
     return () => {
       cancelled = true;
     };
-  }, [speakers, vowels, stresses, functionKey, useNormalized, speakerMode, weighting, smoothing, functionParams]);
+  }, [speakers, vowels, stresses, functionKey, useNormalized, speakerMode, stressMode, weighting, smoothing, functionParams]);
 
   const panels = useMemo(
-    () => (tokens ? buildPanels(tokens.rows, speakerMode) : []),
-    [tokens, speakerMode],
+    () => (tokens ? buildPanels(tokens.rows, speakerMode, stressMode) : []),
+    [tokens, speakerMode, stressMode],
   );
 
-  const trajByGroup = useMemo(() => {
+  const panelTrajectories = useMemo(() => {
     const m = new Map<string, TrajectoryGroup[]>();
     if (!traj) return m;
-    for (const g of traj.groups) {
-      const arr = m.get(g.group_key);
-      if (arr) arr.push(g);
-      else m.set(g.group_key, [g]);
+    for (const p of panels) {
+      m.set(
+        p.key,
+        traj.groups.filter((g) => {
+          if (p.filter.speaker && g.dimensions.speaker !== p.filter.speaker) return false;
+          if (p.filter.stress && g.dimensions.stress !== p.filter.stress) return false;
+          return true;
+        }),
+      );
     }
     return m;
-  }, [traj]);
+  }, [traj, panels]);
 
   const sharedRanges = useMemo(() => {
     if (!tokens || panels.length <= 1) return { x: null as AxisRange | null, y: null as AxisRange | null };
@@ -169,13 +188,12 @@ export function IndividualTrajectoriesTab() {
         style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
       >
         {panels.map((p) => {
-          const trajKey = speakerMode === "separate" ? p.key : "all";
           return (
             <IndividualTrajectoryPanel
               key={`${cols}-${p.key}`}
               title={p.title}
               samples={p.samples}
-              trajectories={trajByGroup.get(trajKey)}
+              trajectories={panelTrajectories.get(p.key)}
               useNormalized={useNormalized}
               pointMode={pointMode}
               wordQuery={wordQuery}

@@ -1,6 +1,4 @@
 import { useCallback, useMemo } from "react";
-import factoryModule from "react-plotly.js/factory";
-import plotlyModule from "plotly.js-dist-min";
 import type { PlotMouseEvent } from "plotly.js";
 
 import type { TokenSample, TrajectoryGroup } from "../lib/api";
@@ -14,22 +12,7 @@ import { samplesForPointMode } from "../lib/pointMode";
 import { wordMatches } from "../lib/wordMatch";
 import type { PointMode } from "../store/filters";
 import { useSelection } from "../store/selection";
-
-// Vite's CJS→ESM wrapper sometimes lands these on `.default`. Unwrap so the
-// factory call works regardless of how the module was bundled.
-const createPlotlyComponent =
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ((factoryModule as any).default ?? factoryModule) as (p: unknown) => React.ComponentType<unknown>;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const Plotly = (plotlyModule as any).default ?? plotlyModule;
-const Plot = createPlotlyComponent(Plotly) as React.ComponentType<{
-  data: unknown[];
-  layout: unknown;
-  config?: unknown;
-  style?: React.CSSProperties;
-  useResizeHandler?: boolean;
-  onClick?: (e: Readonly<PlotMouseEvent>) => void;
-}>;
+import { LazyPlot as Plot } from "./LazyPlot";
 
 export type AxisRange = [number, number];
 
@@ -220,8 +203,9 @@ export function PlotPanel({
     [trajectories],
   );
 
-  const selectedTrace = selectedRows.length > 0
-    ? {
+  const selectedTrace = useMemo(
+    () => selectedRows.length > 0
+      ? {
         type: "scatter",
         mode: selectedRows.length > 1 ? "lines+markers" : "markers",
         name: "Selected token",
@@ -238,7 +222,9 @@ export function PlotPanel({
         hovertemplate: "%{text}<br>F2=%{x:.1f}, F1=%{y:.1f}<extra></extra>",
         showlegend: false,
       }
-    : null;
+      : null,
+    [selectedRows, useNormalized],
+  );
 
   const hitTrace = useMemo(() => ({
     type: "scatter",

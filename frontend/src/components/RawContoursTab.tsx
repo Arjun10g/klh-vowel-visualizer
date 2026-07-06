@@ -3,13 +3,15 @@ import { useEffect, useMemo, useState } from "react";
 import {
   fetchTokens,
   fetchTrajectories,
+  type GroupByDim,
+  type Metadata,
   type TokensResponse,
   type TrajectoriesResponse,
   type TrajectoryGroup,
 } from "../lib/api";
 import { functionFilterParams } from "../lib/functionFilters";
 import { useDebouncedValue } from "../lib/hooks";
-import { buildPanels } from "../lib/panels";
+import { buildPanels, projectedPanelCount, useNormalizedForPanelCount } from "../lib/panels";
 import { useFilters } from "../store/filters";
 import { LoadingBadge } from "./LoadingBadge";
 import { PlotPanel, type AxisRange } from "./PlotPanel";
@@ -28,11 +30,16 @@ function paddedRange(values: number[]): AxisRange | null {
   return [lo - span * PADDING, hi + span * PADDING];
 }
 
-export function RawContoursTab() {
+interface Props {
+  metadata: Metadata;
+}
+
+export function RawContoursTab({ metadata }: Props) {
   const speakers = useFilters((s) => s.speakers);
   const vowels = useFilters((s) => s.vowels);
   const stresses = useFilters((s) => s.stresses);
   const speakerMode = useFilters((s) => s.speakerMode);
+  const stressMode = useFilters((s) => s.stressMode);
   const pointMode = useFilters((s) => s.pointMode);
   const wordQuery = useFilters((s) => s.wordQuery);
   const functionWordModes = useFilters((s) => s.functionWordModes);
@@ -51,8 +58,12 @@ export function RawContoursTab() {
   // Tokens fetch — driven by filters only.
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setErr(null);
+    void Promise.resolve().then(() => {
+      if (!cancelled) {
+        setLoading(true);
+        setErr(null);
+      }
+    });
     fetchTokens({ speakers, vowels, stresses, ...functionParams, limit: 800 })
       .then((d) => {
         if (!cancelled) setData(d);
@@ -68,18 +79,23 @@ export function RawContoursTab() {
     };
   }, [speakers, vowels, stresses, functionKey, functionParams]);
 
-  const useNormalized = speakerMode === "merged";
+  const useNormalized = useNormalizedForPanelCount(
+    projectedPanelCount(metadata, speakers, speakerMode, stresses, stressMode),
+  );
 
   // Trajectories fetch — also depends on smoothing/weighting/normalize.
   useEffect(() => {
     let cancelled = false;
+    const groupBy: GroupByDim[] = [];
+    if (speakerMode === "separate") groupBy.push("speaker");
+    if (stressMode === "separate") groupBy.push("stress");
     fetchTrajectories({
       speakers,
       vowels,
       stresses,
       ...functionParams,
       normalize: useNormalized ? "true" : "false",
-      group_by: speakerMode === "separate" ? ["speaker"] : ["none"],
+      group_by: groupBy.length > 0 ? groupBy : ["none"],
       weighting,
       smoothing,
     })
@@ -93,24 +109,28 @@ export function RawContoursTab() {
     return () => {
       cancelled = true;
     };
-  }, [speakers, vowels, stresses, functionKey, useNormalized, speakerMode, weighting, smoothing, functionParams]);
+  }, [speakers, vowels, stresses, functionKey, useNormalized, speakerMode, stressMode, weighting, smoothing, functionParams]);
 
   const panels = useMemo(
-    () => (data ? buildPanels(data.rows, speakerMode) : []),
-    [data, speakerMode],
+    () => (data ? buildPanels(data.rows, speakerMode, stressMode) : []),
+    [data, speakerMode, stressMode],
   );
 
-  // Index trajectories by group_key so each panel gets its own subset.
-  const trajByGroup = useMemo(() => {
+  const panelTrajectories = useMemo(() => {
     const m = new Map<string, TrajectoryGroup[]>();
     if (!traj) return m;
-    for (const g of traj.groups) {
-      const arr = m.get(g.group_key);
-      if (arr) arr.push(g);
-      else m.set(g.group_key, [g]);
+    for (const p of panels) {
+      m.set(
+        p.key,
+        traj.groups.filter((g) => {
+          if (p.filter.speaker && g.dimensions.speaker !== p.filter.speaker) return false;
+          if (p.filter.stress && g.dimensions.stress !== p.filter.stress) return false;
+          return true;
+        }),
+      );
     }
     return m;
-  }, [traj]);
+  }, [traj, panels]);
 
   const sharedRanges = useMemo(() => {
     if (!data || panels.length <= 1) return { x: null as AxisRange | null, y: null as AxisRange | null };
@@ -165,15 +185,12 @@ export function RawContoursTab() {
         style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
       >
         {panels.map((p) => {
-          // group_by=none → trajectories live under "all"; group_by=speaker
-          // → under each speaker code, which matches our panel keys.
-          const trajKey = speakerMode === "separate" ? p.key : "all";
           return (
             <PlotPanel
               key={`${cols}-${p.key}`}
               title={p.title}
               samples={p.samples}
-              trajectories={trajByGroup.get(trajKey)}
+              trajectories={panelTrajectories.get(p.key)}
               useNormalized={useNormalized}
               pointMode={pointMode}
               wordQuery={wordQuery}

@@ -1,23 +1,9 @@
 import { useMemo } from "react";
-import factoryModule from "react-plotly.js/factory";
-import plotlyModule from "plotly.js-dist-min";
 
 import type { ContourGroup } from "../lib/api";
 import { colorForVowel } from "../lib/colors";
+import { LazyPlot as Plot } from "./LazyPlot";
 import type { AxisRange } from "./PlotPanel";
-
-const createPlotlyComponent =
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ((factoryModule as any).default ?? factoryModule) as (p: unknown) => React.ComponentType<unknown>;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const Plotly = (plotlyModule as any).default ?? plotlyModule;
-const Plot = createPlotlyComponent(Plotly) as React.ComponentType<{
-  data: unknown[];
-  layout: unknown;
-  config?: unknown;
-  style?: React.CSSProperties;
-  useResizeHandler?: boolean;
-}>;
 
 interface Props {
   title: string;
