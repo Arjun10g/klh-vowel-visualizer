@@ -5,7 +5,13 @@ import unittest
 
 import polars as pl
 
-from backend.data import filter_tokens, normalize_word_query, tokens_payload
+from backend.data import (
+    filter_tokens,
+    load_prefix_offsets,
+    normalize_word_query,
+    token_detail,
+    tokens_payload,
+)
 
 
 def sample_df() -> pl.DataFrame:
@@ -42,6 +48,35 @@ def sample_df() -> pl.DataFrame:
 
 
 class DataFilteringTests(unittest.TestCase):
+    def test_verified_aa_interview_offsets_resolve_to_episode_clock(self) -> None:
+        offsets, loaded = load_prefix_offsets()
+        detail = token_detail(
+            pl.DataFrame(
+                [
+                    {
+                        "token_id": "AA|KLH057a_0001|42.8996707",
+                        "Speaker": "AA",
+                        "filename": "KLH057a_0001",
+                        "word": "aloha",
+                        "vowel": "a",
+                        "stress": "primary",
+                        "previous_sound": "k",
+                        "next_sound": "l",
+                        "start": 42.8996707,
+                    }
+                ]
+            ),
+            offsets,
+            "AA|KLH057a_0001|42.8996707",
+        )
+
+        self.assertTrue(loaded)
+        self.assertEqual(offsets["KLH057a"], 0.0)
+        self.assertAlmostEqual(offsets["KLH057b"], 2600.5416780045352)
+        self.assertIsNotNone(detail)
+        self.assertTrue(detail["interview_offset_available"])
+        self.assertAlmostEqual(detail["interview_seconds"], 42.8996707)
+
     def test_filter_tokens_combines_speaker_vowel_and_stress(self) -> None:
         out = filter_tokens(
             sample_df(),

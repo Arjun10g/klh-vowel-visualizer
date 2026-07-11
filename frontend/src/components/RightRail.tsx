@@ -9,13 +9,16 @@ import { TtsControls } from "./TtsControls";
 
 type SelectedSample = NonNullable<ReturnType<typeof useSelection.getState>["sample"]>;
 
-function formatHMS(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
+function formatInterviewTimestamp(seconds: number): string {
+  const milliseconds = Math.max(0, Math.round(seconds * 1000));
+  const h = Math.floor(milliseconds / 3_600_000);
+  const m = Math.floor((milliseconds % 3_600_000) / 60_000);
+  const sec = Math.floor((milliseconds % 60_000) / 1000);
+  const ms = milliseconds % 1000;
   const pad = (n: number) => String(n).padStart(2, "0");
-  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+  return h > 0
+    ? `${h}:${pad(m)}:${pad(sec)}.${String(ms).padStart(3, "0")}`
+    : `${m}:${pad(sec)}.${String(ms).padStart(3, "0")}`;
 }
 
 function ttsSentence(d: TokenDetail): string {
@@ -162,12 +165,12 @@ export function RightRail() {
               </a>
             )}
             {detail.interview_offset_available && detail.interview_seconds !== null ? (
-              <a
-                href={`#interview/${encodeURIComponent(detail.filename)}?t=${Math.floor(detail.interview_seconds)}`}
-                className="text-sm text-indigo-600 hover:underline"
+              <span
+                className="font-mono text-sm text-slate-700"
+                title={`${detail.interview_seconds.toFixed(6)} seconds from the start of the episode`}
               >
-                @ {formatHMS(detail.interview_seconds)}
-              </a>
+                @ {formatInterviewTimestamp(detail.interview_seconds)}
+              </span>
             ) : (
               <span
                 className="cursor-not-allowed text-sm text-slate-400"
