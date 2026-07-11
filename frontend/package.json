@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:live-formants": "tsx tests/liveFormants.backtest.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
@@ -35,6 +36,7 @@
     "globals": "^17.5.0",
     "postcss": "^8.5.10",
     "tailwindcss": "^3.4.19",
+    "tsx": "^4.23.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.2",
     "vite": "^8.0.10"

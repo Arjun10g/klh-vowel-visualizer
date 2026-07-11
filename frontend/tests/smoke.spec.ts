@@ -25,4 +25,10 @@ test("loads metadata, applies command filters, and syncs URL state", async ({ pa
   await page.getByRole("button", { name: /Corpus Word/ }).click();
   await expect(page).toHaveURL(/tab=corpus_word/);
   await expect(page.getByRole("textbox", { name: "Recorded word" })).toBeVisible();
+
+  await page.getByRole("button", { name: /Live Voice/ }).click();
+  await expect(page).toHaveURL(/tab=live_voice/);
+  await expect(page.getByRole("button", { name: "Start mic" })).toBeVisible();
+  await expect(page.getByText("Live reading")).toBeVisible();
+  await expect(page.getByText("Something went wrong rendering this view.")).toHaveCount(0);
 });

@@ -11,7 +11,7 @@ import {
 } from "../lib/api";
 import { colorForVowel } from "../lib/colors";
 import { functionFilterParams } from "../lib/functionFilters";
-import type { FormantEstimate } from "../lib/liveFormants";
+import { LIVE_FORMANT_FRAME_SIZE, type FormantEstimate } from "../lib/liveFormants";
 import { useDebouncedValue } from "../lib/hooks";
 import { useFilters } from "../store/filters";
 import { LoadingBadge } from "./LoadingBadge";
@@ -43,7 +43,7 @@ type WindowWithWebkitAudio = Window & {
 const DEFAULT_X_RANGE: AxisRange = [500, 3000];
 const DEFAULT_Y_RANGE: AxisRange = [200, 1100];
 const PADDING = 0.08;
-const LIVE_FRAME_INTERVAL_MS = 60;
+const LIVE_FRAME_INTERVAL_MS = 45;
 
 const SPEAKER_COLORS = [
   "#2563eb",
@@ -130,7 +130,7 @@ export function LiveVoiceTab({ metadata }: Props) {
   const [targetMode, setTargetMode] = useState<TargetMode>("average");
   const [trackingMode, setTrackingMode] = useState<TrackingMode>("multi");
   const [maxFrequency, setMaxFrequency] = useState(5000);
-  const [lpcOrder, setLpcOrder] = useState(12);
+  const [lpcOrder, setLpcOrder] = useState(14);
   const [targetData, setTargetData] = useState<TrajectoriesResponse | null>(null);
   const [exampleTokens, setExampleTokens] = useState<TokenSample[]>([]);
   const [loadingTarget, setLoadingTarget] = useState(false);
@@ -153,6 +153,7 @@ export function LiveVoiceTab({ metadata }: Props) {
   const lastTickRef = useRef(0);
   const startTimeRef = useRef(0);
   const estimateRef = useRef<FormantEstimate | null>(null);
+  const unvoicedFramesRef = useRef(0);
 
   const stopMic = useCallback((updateState = true) => {
     if (rafRef.current !== null) {
@@ -188,6 +189,7 @@ export function LiveVoiceTab({ metadata }: Props) {
     analyserRef.current = null;
     bufferRef.current = null;
     lastTickRef.current = 0;
+    unvoicedFramesRef.current = 0;
     if (updateState) setListening(false);
   }, []);
 
@@ -300,6 +302,7 @@ export function LiveVoiceTab({ metadata }: Props) {
       setErr(null);
       setEstimate(null);
       estimateRef.current = null;
+      unvoicedFramesRef.current = 0;
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: false,
@@ -320,7 +323,15 @@ export function LiveVoiceTab({ metadata }: Props) {
       worker.onmessage = (event: MessageEvent<LiveFormantsWorkerResponse>) => {
         workerBusyRef.current = false;
         const next = event.data.estimate;
-        if (!next) return;
+        if (!next) {
+          unvoicedFramesRef.current += 1;
+          if (unvoicedFramesRef.current >= 2) {
+            estimateRef.current = null;
+            setEstimate(null);
+          }
+          return;
+        }
+        unvoicedFramesRef.current = 0;
         estimateRef.current = next;
         setEstimate(next);
         setPoints((prev) => [
@@ -391,7 +402,7 @@ export function LiveVoiceTab({ metadata }: Props) {
 
       if (!usingWorklet) {
         const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 4096;
+        analyser.fftSize = LIVE_FORMANT_FRAME_SIZE;
         analyser.smoothingTimeConstant = 0;
         source.connect(analyser);
         analyserRef.current = analyser;
@@ -622,6 +633,7 @@ export function LiveVoiceTab({ metadata }: Props) {
             setPoints([]);
             setEstimate(null);
             estimateRef.current = null;
+            unvoicedFramesRef.current = 0;
           }}
           disabled={points.length === 0 && !estimate}
           className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-indigo-200 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
