@@ -26,6 +26,26 @@ It downloads fixed public KLH corpus segments and compares worker-estimator trac
 The script fails when aggregate F1 MAE exceeds 100 Hz or F2 MAE exceeds 120 Hz. Its frame size and hop are imported from the production capture constants, so the test cannot quietly exercise a different analysis window from the app.
 It also reports mean estimator time per frame; the worker keeps this work away from Plotly and the browser's interaction thread.
 
+## Stable Live Visuals
+
+The microphone tracker still uses each raw LPC estimate to choose its next
+candidate. A separate display-only layer applies a five-frame rolling median,
+confidence-gates weak frames, and then uses an adaptive moving average. This
+removes isolated pole swaps without flattening sustained vowel movement.
+
+The UI publishes this stabilized trace at 10 Hz, uses straight line segments
+to avoid spline overshoot, and keeps the vowel-space axes fixed while the mic
+is active. The Live Voice tab also includes a formant-over-time plot: F1 and
+F2 have separate fixed Hz axes and optional corpus target guide lines, making
+the opening/closing and fronting/backing movement of a user's vowels easier to
+read.
+
+Run the deterministic display-smoothing check with:
+
+```sh
+cd frontend && npm run test:live-smoothing
+```
+
 ## Scope And Limits
 
 The upstream repository publishes vowel-segment WAVs, not complete word recordings with consonants. The full-word backtest therefore reconstructs each recorded word's vowel sequence in order; it validates movement and tracker continuity across multiple vowel segments, but does not claim to validate consonant transitions.

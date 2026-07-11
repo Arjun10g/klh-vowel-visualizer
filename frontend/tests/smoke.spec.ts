@@ -30,5 +30,6 @@ test("loads metadata, applies command filters, and syncs URL state", async ({ pa
   await expect(page).toHaveURL(/tab=live_voice/);
   await expect(page.getByRole("button", { name: "Start mic" })).toBeVisible();
   await expect(page.getByText("Live reading")).toBeVisible();
+  await expect(page.getByText("Live formant movement")).toBeVisible();
   await expect(page.getByText("Something went wrong rendering this view.")).toHaveCount(0);
 });

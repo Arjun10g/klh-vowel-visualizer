@@ -12,6 +12,10 @@ import {
 import { colorForVowel } from "../lib/colors";
 import { functionFilterParams } from "../lib/functionFilters";
 import { LIVE_FORMANT_FRAME_SIZE, type FormantEstimate } from "../lib/liveFormants";
+import {
+  smoothLiveEstimate,
+  type LiveFormantSmootherState,
+} from "../lib/liveFormantSmoothing";
 import { useDebouncedValue } from "../lib/hooks";
 import { useFilters } from "../store/filters";
 import { LoadingBadge } from "./LoadingBadge";
@@ -44,6 +48,8 @@ const DEFAULT_X_RANGE: AxisRange = [500, 3000];
 const DEFAULT_Y_RANGE: AxisRange = [200, 1100];
 const PADDING = 0.08;
 const LIVE_FRAME_INTERVAL_MS = 45;
+const LIVE_UI_INTERVAL_MS = 100;
+const LIVE_TRAIL_POINT_LIMIT = 60;
 
 const SPEAKER_COLORS = [
   "#2563eb",
@@ -153,7 +159,9 @@ export function LiveVoiceTab({ metadata }: Props) {
   const lastTickRef = useRef(0);
   const startTimeRef = useRef(0);
   const estimateRef = useRef<FormantEstimate | null>(null);
+  const visualSmootherRef = useRef<LiveFormantSmootherState | null>(null);
   const unvoicedFramesRef = useRef(0);
+  const lastUiUpdateRef = useRef(0);
 
   const stopMic = useCallback((updateState = true) => {
     if (rafRef.current !== null) {
@@ -189,7 +197,9 @@ export function LiveVoiceTab({ metadata }: Props) {
     analyserRef.current = null;
     bufferRef.current = null;
     lastTickRef.current = 0;
+    lastUiUpdateRef.current = 0;
     unvoicedFramesRef.current = 0;
+    visualSmootherRef.current = null;
     if (updateState) setListening(false);
   }, []);
 
@@ -301,8 +311,11 @@ export function LiveVoiceTab({ metadata }: Props) {
     try {
       setErr(null);
       setEstimate(null);
+      setPoints([]);
       estimateRef.current = null;
+      visualSmootherRef.current = null;
       unvoicedFramesRef.current = 0;
+      lastUiUpdateRef.current = 0;
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: false,
@@ -327,16 +340,23 @@ export function LiveVoiceTab({ metadata }: Props) {
           unvoicedFramesRef.current += 1;
           if (unvoicedFramesRef.current >= 2) {
             estimateRef.current = null;
+            visualSmootherRef.current = null;
             setEstimate(null);
           }
           return;
         }
         unvoicedFramesRef.current = 0;
         estimateRef.current = next;
-        setEstimate(next);
+        const visual = smoothLiveEstimate(next, visualSmootherRef.current);
+        visualSmootherRef.current = visual.state;
+        if (!visual.includeInTrail) return;
+        const now = performance.now();
+        if (now - lastUiUpdateRef.current < LIVE_UI_INTERVAL_MS) return;
+        lastUiUpdateRef.current = now;
+        setEstimate(visual.estimate);
         setPoints((prev) => [
-          ...prev.slice(-119),
-          { ...next, elapsed: event.data.elapsed },
+          ...prev.slice(-(LIVE_TRAIL_POINT_LIMIT - 1)),
+          { ...visual.estimate, elapsed: event.data.elapsed },
         ]);
       };
       worker.onerror = (event) => {
@@ -438,15 +458,11 @@ export function LiveVoiceTab({ metadata }: Props) {
         ys.push(point.f1);
       }
     }
-    for (const point of points) {
-      xs.push(point.f2);
-      ys.push(point.f1);
-    }
     return {
       x: paddedRange(xs, DEFAULT_X_RANGE),
       y: paddedRange(ys, DEFAULT_Y_RANGE),
     };
-  }, [targetGroups, points]);
+  }, [targetGroups]);
 
   const targetTraces = useMemo(() => {
     return targetGroups.map((group) => {
@@ -476,26 +492,14 @@ export function LiveVoiceTab({ metadata }: Props) {
   const liveTrailTrace = points.length > 0
     ? {
         type: "scatter",
-        mode: "lines+markers",
-        name: "Live voice",
+        mode: "lines",
+        name: "Live trail",
         x: points.map((point) => point.f2),
         y: points.map((point) => point.f1),
         text: points.map((point) =>
           `t=${point.elapsed.toFixed(1)}s · confidence=${point.confidence.toFixed(2)}`
         ),
-        line: { color: "#0f172a", width: 3, shape: "spline" },
-        marker: {
-          color: points.map((point) => point.confidence),
-          colorscale: [
-            [0, "#94a3b8"],
-            [0.5, "#38bdf8"],
-            [1, "#14b8a6"],
-          ],
-          cmin: 0,
-          cmax: 1,
-          size: 7,
-          line: { color: "#ffffff", width: 1 },
-        },
+        line: { color: "#0f172a", width: 3, shape: "linear" },
         hovertemplate: "%{text}<br>F2=%{x:.1f}, F1=%{y:.1f}<extra></extra>",
         showlegend: true,
       }
@@ -526,6 +530,65 @@ export function LiveVoiceTab({ metadata }: Props) {
     ...(liveTrailTrace ? [liveTrailTrace] : []),
     ...(currentPointTrace ? [currentPointTrace] : []),
   ];
+
+  const liveTimeline = useMemo(() => {
+    const latestElapsed = points.at(-1)?.elapsed ?? 0;
+    const rangeStart = Math.max(0, latestElapsed - 6);
+    const rangeEnd = Math.max(6, latestElapsed);
+    const x = points.map((point) => point.elapsed);
+    const confidence = points.map((point) => point.confidence.toFixed(2));
+    const targetX = [rangeStart, rangeEnd];
+    const targetTraces = targetPoint
+      ? [
+          {
+            type: "scatter",
+            mode: "lines",
+            name: "Corpus F1",
+            x: targetX,
+            y: [targetPoint.f1, targetPoint.f1],
+            line: { color: "#0f766e", width: 1.5, dash: "dot" },
+            hovertemplate: "Corpus F1=%{y:.0f} Hz<extra></extra>",
+          },
+          {
+            type: "scatter",
+            mode: "lines",
+            name: "Corpus F2",
+            x: targetX,
+            y: [targetPoint.f2, targetPoint.f2],
+            yaxis: "y2",
+            line: { color: "#c2410c", width: 1.5, dash: "dot" },
+            hovertemplate: "Corpus F2=%{y:.0f} Hz<extra></extra>",
+          },
+        ]
+      : [];
+    return {
+      range: [rangeStart, rangeEnd] as AxisRange,
+      traces: [
+        ...targetTraces,
+        {
+          type: "scatter",
+          mode: "lines",
+          name: "Live F1",
+          x,
+          y: points.map((point) => point.f1),
+          text: confidence,
+          line: { color: "#0f766e", width: 3, shape: "linear" },
+          hovertemplate: "Live F1=%{y:.0f} Hz<br>confidence=%{text}<extra></extra>",
+        },
+        {
+          type: "scatter",
+          mode: "lines",
+          name: "Live F2",
+          x,
+          y: points.map((point) => point.f2),
+          text: confidence,
+          yaxis: "y2",
+          line: { color: "#c2410c", width: 3, shape: "linear" },
+          hovertemplate: "Live F2=%{y:.0f} Hz<br>confidence=%{text}<extra></extra>",
+        },
+      ],
+    };
+  }, [points, targetPoint]);
 
   const selectedSpeakerLabel =
     speakers.length === 0
@@ -633,7 +696,9 @@ export function LiveVoiceTab({ metadata }: Props) {
             setPoints([]);
             setEstimate(null);
             estimateRef.current = null;
+            visualSmootherRef.current = null;
             unvoicedFramesRef.current = 0;
+            lastUiUpdateRef.current = 0;
           }}
           disabled={points.length === 0 && !estimate}
           className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-indigo-200 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
@@ -692,6 +757,7 @@ export function LiveVoiceTab({ metadata }: Props) {
               paper_bgcolor: "#f8fbff",
               hovermode: "closest",
               hoverlabel: { bgcolor: "#0f172a", font: { color: "#ffffff", size: 12 } },
+              uirevision: "live-vowel-space",
             }}
             config={{ displayModeBar: false, responsive: true }}
             style={{ width: "100%", height: "560px" }}
@@ -746,7 +812,11 @@ export function LiveVoiceTab({ metadata }: Props) {
                 <span className="font-mono text-slate-800">{points.length}</span>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <span>Smoothing</span>
+                <span>Visual trace</span>
+                <span className="font-medium text-slate-800">Stabilized</span>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span>Corpus smoothing</span>
                 <span className="font-mono text-slate-800">{smoothing.toFixed(0)}</span>
               </div>
             </div>
@@ -784,6 +854,54 @@ export function LiveVoiceTab({ metadata }: Props) {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="rounded-md border border-slate-200 bg-white p-2 shadow-sm">
+        <Plot
+          data={liveTimeline.traces}
+          layout={{
+            title: {
+              text: "Live formant movement",
+              font: { size: 13, family: "system-ui, sans-serif" },
+            },
+            xaxis: {
+              title: { text: "Time (s)", font: { size: 12 } },
+              autorange: false,
+              range: liveTimeline.range,
+              zeroline: false,
+              gridcolor: "#cbd5e1",
+              tickfont: { size: 11 },
+            },
+            yaxis: {
+              title: { text: "F1 (Hz)", font: { size: 12, color: "#0f766e" } },
+              autorange: false,
+              range: [100, 1200],
+              zeroline: false,
+              gridcolor: "#cbd5e1",
+              tickfont: { size: 11, color: "#0f766e" },
+            },
+            yaxis2: {
+              title: { text: "F2 (Hz)", font: { size: 12, color: "#c2410c" } },
+              autorange: false,
+              range: [300, maxFrequency],
+              overlaying: "y",
+              side: "right",
+              zeroline: false,
+              tickfont: { size: 11, color: "#c2410c" },
+            },
+            margin: { l: 58, r: 58, t: 38, b: 48 },
+            showlegend: true,
+            legend: { orientation: "h", x: 0, y: 1.1, font: { size: 11 } },
+            plot_bgcolor: "#f8fafc",
+            paper_bgcolor: "#ffffff",
+            hovermode: "x unified",
+            hoverlabel: { bgcolor: "#0f172a", font: { color: "#ffffff", size: 12 } },
+            uirevision: "live-formant-timeline",
+          }}
+          config={{ displayModeBar: false, responsive: true }}
+          style={{ width: "100%", height: "280px" }}
+          useResizeHandler
+        />
       </div>
     </div>
   );
