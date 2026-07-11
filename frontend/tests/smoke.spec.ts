@@ -32,4 +32,11 @@ test("loads metadata, applies command filters, and syncs URL state", async ({ pa
   await expect(page.getByText("Live reading")).toBeVisible();
   await expect(page.getByText("Live formant movement")).toBeVisible();
   await expect(page.getByText("Something went wrong rendering this view.")).toHaveCount(0);
+
+  await page.getByRole("button", { name: /Audio Monitor/ }).click();
+  await expect(page).toHaveURL(/tab=live_audio/);
+  await expect(page.getByRole("button", { name: "Start mic" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Waveform" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Spectrogram" })).toBeVisible();
+  await expect(page.getByText("Something went wrong rendering this view.")).toHaveCount(0);
 });

@@ -16,6 +16,7 @@ const TABS: TabSpec[] = [
   { id: "contours_only", label: "Contours Only", shortcut: "4" },
   { id: "corpus_word", label: "Corpus Word", shortcut: "5" },
   { id: "live_voice", label: "Live Voice", shortcut: "6" },
+  { id: "live_audio", label: "Audio Monitor", shortcut: "7" },
 ];
 
 export function TabNav() {
@@ -30,7 +31,7 @@ export function TabNav() {
   useKeyboardShortcuts(shortcutMap);
 
   return (
-    <nav className="flex border-b border-slate-200 bg-slate-50 text-sm">
+    <nav className="flex overflow-x-auto border-b border-slate-200 bg-slate-50 text-sm">
       {TABS.map((t) => {
         const active = t.id === tab;
         return (
@@ -40,7 +41,7 @@ export function TabNav() {
             onClick={() => setTab(t.id)}
             title={`Press ${t.shortcut} to switch`}
             className={
-              "border-b-2 px-4 py-2 transition " +
+              "shrink-0 border-b-2 px-4 py-2 transition " +
               (active
                 ? "border-indigo-500 text-indigo-700"
                 : "border-transparent text-slate-600 hover:text-slate-900")

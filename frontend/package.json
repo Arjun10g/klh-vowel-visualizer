@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "test:e2e": "playwright test",
     "test:live-formants": "tsx tests/liveFormants.backtest.ts",
-    "test:live-smoothing": "tsx tests/liveFormantSmoothing.test.ts"
+    "test:live-smoothing": "tsx tests/liveFormantSmoothing.test.ts",
+    "test:live-audio": "tsx tests/liveAudio.test.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

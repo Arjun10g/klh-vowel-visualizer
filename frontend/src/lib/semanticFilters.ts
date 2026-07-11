@@ -58,6 +58,7 @@ const INTENTS: IntentExample[] = [
   { text: "individual token trajectories", patch: { tab: "individual" }, label: "individual tab" },
   { text: "corpus word recorded word lookup", patch: { tab: "corpus_word" }, label: "corpus word tab" },
   { text: "live voice microphone", patch: { tab: "live_voice" }, label: "live voice tab" },
+  { text: "audio monitor waveform spectrogram pitch", patch: { tab: "live_audio" }, label: "audio monitor tab" },
 ];
 
 async function getExtractor(): Promise<Extractor> {
@@ -201,6 +202,7 @@ function sanitizeGeneratedPatch(value: unknown, metadata: Metadata): FilterPatch
     "contours_only",
     "corpus_word",
     "live_voice",
+    "live_audio",
   ] as const);
   if (tab) patch.tab = tab;
 
@@ -301,7 +303,7 @@ function buildGenerativePrompt(query: string, metadata: Metadata): ChatMessage[]
         `Allowed function columns: ${metadata.function_word_columns.join(", ") || "none"}.\n` +
         "speakerMode: merged or separate. stressMode: off, overlay, or separate. " +
         "weighting: mean_of_means or pooled. pointMode: auto, single, or nine. " +
-        "tab: overall, individual, raw_contours, contours_only, corpus_word, or live_voice. " +
+        "tab: overall, individual, raw_contours, contours_only, corpus_word, live_voice, or live_audio. " +
         "Use empty arrays for all speakers or all stresses. " +
         `Request: ${query}`,
     },

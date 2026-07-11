@@ -16,6 +16,7 @@ const TAB_IDS: readonly TabId[] = [
   "contours_only",
   "corpus_word",
   "live_voice",
+  "live_audio",
 ];
 
 const FUNCTION_MODES = new Set<FunctionFilterMode>(["ignore", "include", "exclude"]);

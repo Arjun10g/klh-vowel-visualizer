@@ -7,6 +7,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Footer } from "./components/Footer";
 import { IndividualTrajectoriesTab } from "./components/IndividualTrajectoriesTab";
 import { LeftRail } from "./components/LeftRail";
+import { LiveAudioTab } from "./components/LiveAudioTab";
 import { LiveVoiceTab } from "./components/LiveVoiceTab";
 import { OverallTrajectoriesTab } from "./components/OverallTrajectoriesTab";
 import { RawContoursTab } from "./components/RawContoursTab";
@@ -63,6 +64,7 @@ export default function App() {
             {tab === "contours_only" && <ContoursOnlyTab metadata={metadata} />}
             {tab === "corpus_word" && <CorpusWordTab metadata={metadata} />}
             {tab === "live_voice" && <LiveVoiceTab metadata={metadata} />}
+            {tab === "live_audio" && <LiveAudioTab />}
           </ErrorBoundary>
         </div>
         <Footer />

@@ -255,6 +255,14 @@ export function parseFilterCommand(query: string, metadata: Metadata): ParsedFil
   } else if (terms.has("overall")) {
     patch.tab = "overall";
     addRecognized(recognized, "overall trajectories tab");
+  } else if (
+    includesPhrase(text, "audio monitor") ||
+    terms.has("spectrogram") ||
+    terms.has("waveform") ||
+    terms.has("spectrum")
+  ) {
+    patch.tab = "live_audio";
+    addRecognized(recognized, "audio monitor tab");
   } else if (includesPhrase(text, "live voice") || terms.has("mic") || terms.has("microphone")) {
     patch.tab = "live_voice";
     addRecognized(recognized, "live voice tab");
@@ -324,4 +332,3 @@ export function parseFilterCommand(query: string, metadata: Metadata): ParsedFil
     recognized,
   };
 }
-

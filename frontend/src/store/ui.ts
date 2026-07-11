@@ -7,7 +7,8 @@ export type TabId =
   | "raw_contours"
   | "contours_only"
   | "corpus_word"
-  | "live_voice";
+  | "live_voice"
+  | "live_audio";
 
 interface UiState {
   tab: TabId;

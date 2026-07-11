@@ -24,7 +24,7 @@ export function Footer() {
         </span>
         <span className="font-mono text-slate-400">
           press <kbd className="rounded border border-slate-300 bg-white px-1">1</kbd>–
-          <kbd className="rounded border border-slate-300 bg-white px-1">4</kbd> to switch tabs
+          <kbd className="rounded border border-slate-300 bg-white px-1">7</kbd> to switch tabs
         </span>
       </div>
     </footer>
